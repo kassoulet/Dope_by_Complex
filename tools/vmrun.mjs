@@ -54,7 +54,7 @@ function main(argv) {
   if (!ok) console.error('instruction budget exhausted before counter ' + target);
 
   if (opts.list || opts.trace) {
-    console.log('booted at ' + m.partSeg.toString(16) + ':' + 0xbd5.toString(16) +
+    console.log('booted at ' + m.partSeg.toString(16) + ':' + m.entryIp.toString(16) +
       '  instructions ' + m.cpu.insts + '  frames ' + m.frames.length +
       '  stopped ' + m.stopped + '  exited ' + m.exited +
       '  pitDiv ' + m.pitDiv);

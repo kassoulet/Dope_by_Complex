@@ -10,6 +10,7 @@
  */
 
 import { VGA, SCREEN_W, SCREEN_H } from '../tools/vm/vga.js';
+import { Machine } from '../tools/vm/machine.js';
 
 let passed = 0;
 let failed = 0;
@@ -206,6 +207,29 @@ const mem = new Uint8Array(1 << 20);
   eq('a line inside the picture is shown', out[0], 9);
   const last = out.slice((SCREEN_H - 1) * SCREEN_W, SCREEN_H * SCREEN_W);
   eq('a line past the end of memory is black', last.reduce((a, b) => a + b, 0), 0);
+}
+
+// -------------------------------------------------------------------- boot
+
+// A snapshot names the entry it caught the part at.  Only part 1 lives at the
+// fixed 0xbd5 offset, so booting any other part there starts the CPU inside
+// part 1's code inside part 2's memory -- which looks exactly like "the part
+// draws nothing" and is what the rig did before this was pinned.
+{
+  const m = new Machine();
+  const image = new Uint8Array(1 << 20);
+  m.boot(image, { part_segment: 0x0f8b, entry_cs_ip: [0x0f8b, 0x376c], counter_offset: 0x1928 });
+  eq('boot takes the entry from the snapshot', m.cpu.ip, 0x376c);
+  eq('boot reports that entry', m.entryIp, 0x376c);
+  eq('boot keeps the snapshot part segment', m.partSeg, 0x0f8b);
+
+  const p1 = new Machine();
+  p1.boot(image, { part_segment: 0x0f8b, entry_cs_ip: [0x0f8b, 0x0bd5] });
+  eq('part 1 still boots at its own entry', p1.cpu.ip, 0x0bd5);
+
+  const bare = new Machine();
+  bare.boot(image, { part_segment: 0x0f8b });
+  eq('a snapshot without an entry falls back to 0xbd5', bare.cpu.ip, 0x0bd5);
 }
 
 console.log(`\n${passed}/${passed + failed} passed`);

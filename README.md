@@ -49,7 +49,8 @@ tools/vm/machine.js memory map, 8253 timer, int 8, int 10h/21h, snapshot boot
 web/js/rnc.js     RNC ProPack decompressor -- reads the blocks out of DOPE.EXE
 web/js/part1.js   part 1 transcoded: picture + scroll + palette, written as pixels
 web/js/part1player.js clocks that at the original's 69 Hz and paints the canvas
-web/js/part2.js   what is exact about part 2 so far: its 256 entry palette
+web/js/part2.js   what is exact about part 2 so far: its 256 entry palette, the
+                  credits bands and the shade-table screen compositor
 web/js/engine.js  320x200 8 bit framebuffer, palette, polygon rasteriser
 web/js/mod.js     28 channel ProTracker/GUS replayer
 web/js/look.js       look-alikes of parts 2..end, timeline measured from the original
@@ -66,7 +67,8 @@ docs/RUNTIME.md   measured runtime: video mode, code layout, load addresses
 python3 tests/test_tools.py      # EXE header, 8 RNC blocks + CRCs, MOD layout
 node tests/test_rnc.mjs          # the JS decompressor against the same CRCs
 node tests/test_part1.mjs        # part 1: picture, scroll units, palette, frames
-node tests/test_part2.mjs        # part 2: palette out of block 2, checked against build/ref_p2
+node tests/test_part2.mjs        # part 2: palette, shade table and bands, checked against
+                                 # build/ref_p2 and the frozen part's memory
 node tests/test_browser.mjs      # the real page in headless Chrome: audio, pause, seek, loop
 node tests/test_transport.mjs    # seek == continuous playback, song duration
 node tests/test_mod.mjs          # player: header, sample tables, seek == playback
@@ -175,14 +177,24 @@ scroll and palette crossfade at the original's timing.
 
 Reconstructed: the geometry and the effects of parts 2..7.  `docs/ANALYSIS.md`
 records what the original code does; `docs/RUNTIME.md` records what was
-measured on the running demo.  Part 2 is captured but not ported: it is a
+measured on the running demo.  Part 2's 3D layer is captured but not ported: it is a
 software 3D engine (transform, projection, texture mapped spans) whose data
-addresses are segment constants the loader relocates.  What *is* exact about
-it is its colour side -- all 256 DAC entries, loaded from the block and
-rewritten every timer tick through a 64 entry fade ramp, which explains the
-70..107 colours per frame without any per line palette (`web/js/part2.js`,
-`tests/test_part2.mjs`; an earlier note here claimed the opposite and was a
-miscount of part 1's 192 entry palette).
+addresses are segment constants the loader relocates, and whose span loop does
+not terminate in the verification rig yet.  What *is* exact about the part is
+the screen machinery around that engine (`web/js/part2.js`, checked by
+`tests/test_part2.mjs` against `build/ref_p2` and the frozen part's memory):
+
+* all 256 DAC entries, loaded from the block and rewritten every timer tick
+  through a 64 entry fade ramp -- which explains the 70..107 colours per frame
+  without any per line palette (an earlier note here claimed the opposite and
+  was a miscount of part 1's 192 entry palette);
+* the shade table the compositor reads, rebuilt from block 2 to the running
+  part's 24,576 bytes, and the four credit bands at block `0xc01a`, byte
+  identical to memory;
+* the compose plus the one-row blit that scrolls the picture up: the frozen
+  screen buffer read back through the base palette matches the frozen
+  screenshot for 90 of 199 rows and 90% of its pixels, the remainder being one
+  6 bit DAC step -- the fade ramp's phase at the instant of the freeze.
 
 Original: (c) 1995 Complex — jmagic / jugi / reward.  Music replay routine
 based on Oskari Tammelin's ProTracker for GUS, as credited in `DOPE.TXT`.

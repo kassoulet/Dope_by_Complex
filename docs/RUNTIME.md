@@ -374,54 +374,95 @@ the rule the loader uses: **a stored segment constant is patched by adding
 block offset 0 gets mapped, which is exactly why the addend is one paragraph
 short.  That is the same `0xf7b` part 1's `push 0xe4` shows.
 
-**What the snapshot says the screens actually are.**  At counter 127 (58 s into
-the launch) the snapshot has `[cs:0x1904] = 2`, an empty object list (`[cs:0x1810]
-= 0xffff`), and yet a full picture on screen.  So part 2's early screens are not
-3D at all: `0x370c` waits for the frame hook to set `cs:0x1924`, then copies a
-`0x2800` byte band -- 32 scanlines -- from segment `0x451`, offset
-`0xdb0a + n * 0x2800` with `n = [cs:0x1904]`, into a work buffer at
-`0x4527:0x6e00`; a `0x7d00` byte loop then combines a mask byte with the
-128x128 map at `0x3527` (`mov bh,[si] / mov bl,[es:si] / mov dl,[fs:bx] /
-mov [si],dx`), and a `rep movsd` from `0x5517` to `A0000` puts the result on
-screen.  (Which of the two buffers each step reads is the next thing to pin
-down; the addresses above are what the code says.)  The credit text is *in
-those bands*: it is pre-shaded picture data, which is why there are no strings
-in block 2.
+**The screen pipeline, read out of the code and checked against memory.**
+Part 2's picture is built once per frame by block `0x370c` (segment `0x360c`),
+which is called from `0x371e` after the objects are drawn:
+
+| block | what |
+|-------|------|
+| `0x370c` | wait until the hook has bumped `cs:0x1924` (one frame) |
+| `0x3721` | `es = 0x4527`, `di = 0x6e00`, `cx = 0xa00`: fill the 0x2800 byte band into the background buffer -- `[cs:0x1904] = -2` keeps the last band, `-1` fills black, `0` fills `0x80808080`, anything else copies `ds:0xdb0a + n*0x2800` from the band segment |
+| `0x3780` | the compose: `0x7d00` word pairs, `byte = fs:[(span<<8)|band]`, with `span` the 3D buffer (`ds = 0x5517`) and `band` the background (`es = 0x4527`) |
+| `0x37e3` | blit `0x3ed0` dwords from `0x5517:0x140` to `A0000:0` -- one 320 pixel row down, which is the vertical scroll |
+| `0x37f9` | clear the band strip for the next frame |
+
+The table the compose reads is built at segment `0x1998` into `0x3527`:
+`0x80 | ((((0x1a0*span + 0x60*band) >> 1) + carry) >> 8) & 0x7f`, 64 x 128
+entries written three times (`[bx+0x80]`, `[bx-0x8000]`, `[bx-0x7f80]`), so
+every composed pixel has bit 7 set and uses the top half of the DAC.  Both
+facts are *checked*, not inferred: rebuilding that table from the block's own
+instructions reproduces the running part's 24,576 bytes exactly (0 differ), and
+the four credit bands (`0xc01a`, `0xe81a`, `0x1101a`, `0x1381a` in block 2) sit
+inside the part image at `part_linear + 0xbf1a`, contiguous and byte-identical
+to the frozen part's memory.
+
+That also settles what the early screens are: at counter 127 `[cs:0x1904] = 2`
+and the object list is empty, so the picture is a band pushed through the shade
+table with a zero span buffer.  The credit text is *in those bands*: it is
+pre-shaded picture data, which is why there are no strings in block 2.
+
+Two addresses had to be measured rather than assumed.  The band segment the
+code uses (`push 0x451`) is patched by `+0x97b` to `0xdcc`, not by the `+0xf7b`
+the other constants get, and `0xdcc0 + 0xdb0a = 0x1b7ca` is exactly where the
+bands sit in the part image.  And the screen buffer the blit reads is `0x5517`
+patched to `0x6492`: read that buffer back through the base palette and it
+matches the frozen screenshot with a one-row shift -- **90 of 199 rows and
+57,526 of 63,680 pixels byte exact**, every other pixel off by exactly one
+6-bit DAC step, which is the fade ramp's phase at the instant of the freeze,
+not a picture error.
 
 That also explains the geometry buffers: `0x2ccd0` (polygon list), `0x333f0`
 (projected x), `0x33e18`, `0x34840` and the 128x128 map at `0x35270` are **all
 zero in the block file** and full of values in the running part.  They are
-built at run time by the part's own setup, so no file-only run can draw a frame
-until that generator is transcribed -- which is why the rig above lands on an
-empty list.  The bands, on the other hand, *are* in the file (`0x4510:0xdb0a`),
-so the background-only screens are the transcodeable half of part 2, and the 3D
-engine is the other half.
+built at run time by the part's own setup, so a file-only transcode has the
+credits (bands + shade table + compose, all transcribed) but not the 3D layer
+that fills the span buffer.  `web/js/part2.js` therefore has `shadeTable()`,
+`band(n)` and `compose()`, and no engine.
 
-**A first attempt, and where it stops.**  Loading block 2 at a segment,
-relocating every `push imm16` that is followed by `pop ds/es/fs/gs` plus the
-two tables at `cs:0x400`/`cs:0x408` by adding that segment (the loader's rule as
-part 1 shows it), and starting at block `0x386c` does run the part: 2336 timer
-interrupts, `cs:0x1928` advancing, the script stepping through its `call
-0x381e` waits, mode 13h set, the DAC holding the base palette above.  But the
-part never writes video memory at all -- the draw loop walks an empty polygon
-list and returns.  The two segments that span loop loads (`mov fs,[cs:0x2e8e]`,
-`mov ds,[cs:0x2e8c]`, filled from the phase tables) come out as `0x1e71` and
-`0` at run time although the tables hold relocated values, so the part computes
-them from data whose relocation is not the simple "add the part segment" the
-`push imm16` idiom uses.  With the measured addend above (`- 0x10`) the run is
-still empty: 30 M instructions, 1750 timer frames, the script stepping, and
-**not one store to video memory**.  So the draw loop believes the polygon list
-is empty and returns; the remaining unknown is the pointer the record setup
-hands it (`cs:0x1810` records, `0x3685` building the list), not the video side.
-The snapshot replay from the entry diverges earlier still (it ends up executing
-the ramp tables at `cs:0x1e0`), most likely because a part is not restartable
-from its own entry once its saved `int 8` vector and its script position are
-part of the state.  A snapshot of the *live* screen is available (and the
-framebuffer is not in the `/proc/<pid>/mem` dump -- DOSBox keeps `A0000` there
-as `0xff`), but without frames from the rig there is no honest way to compare a
-transcoding against `build/ref_p2` yet.  The rig itself now takes an entry point and
-a counter offset from the snapshot (`tools/vm/machine.js`), so a part with
-different offsets can be booted without touching it again.
+**What a run of part 2 actually does now (and the bug that hid it).**  The
+earlier note here said the part "never writes video memory at all -- the draw
+loop walks an empty polygon list".  That was a **rig bug, not a part-2 fact**:
+`tools/vm/machine.js` took the snapshot's counter offset but still started the
+CPU at part 1's fixed entry `0xbd5`.  Booting part 2 at `f8b:bd5` runs part 1's
+code inside part 2's memory, which of course leaves the polygon list empty; the
+two "impossible" phase segments (`0x1e71`, `0`) were that garbage.  With the
+entry taken from the snapshot (`entry_cs_ip`, part 2's `376c`, verified against
+block `0x386c`) the rig runs the part for real:
+
+* `376c` → `3765` (palette copy `0x19ce`) → `1998` → setup `377f`: mode 13h, the
+  two palette spans copied to `cs:0x1f10`, 768 DAC bytes out, `cs:0x1a09`
+  pointed at the hook `2580`, `1a5f` builds the gradient map;
+* the script then calls `371e` -- the per-object render -- which calls `354a`
+  (object animation), `3585`, `3310` (draw), `360c` (blit to `A0000`) and waits
+  for `cs:0x1928` until `[cs:0x371c]` frames have gone by;
+* inside `3310` the rig reaches the vertex transform `1c60`, the projection and
+  the texture span loop at `26c0`-`26fa` (the `mov al,[fs:bx]` / `mov bl,[bx+si]`
+  / `mov [es:di-1],bl` body), which stores into the 3D buffer at `es = 0x54a2`
+  (`0x54bb5`..`0x8ffe8`), i.e. it really is texture-mapping polygons.
+
+So the engine is not the blocker any more; the span loop is.  It does not
+terminate: `26fa` is `inc bp / jnz 26c6` and the count comes from `sub bp,dx`,
+while the outer scanline loop is `dec word [cs:0x2654]` -- and `2660` fills that
+counter with a store that has **no `cs:` prefix** (`mov [0x2654],dx`, i.e.
+`ds:`).  At that point the part's `ds` is a picture segment (`0x74b3`), not
+`cs`, so the counter the outer loop tests is never written: 200 M instructions
+without once reaching the blit at `3740`.  The same shape shows in the loop's
+self-patched immediates (`add ecx,0x0`, `add edx,0x0`, `add [cs:0x2650],0x0` are
+all zero in the file) -- the gradients the caller is supposed to write in are
+not there either.  Both are one question: which register set the renderer
+expects on entry (its `ds` convention and the patch site that fills those four
+immediates), which is where a transcription of `0x2900`/`0x2b20` would start.
+
+Until that is answered the rig can boot and run part 2 but produces no frames,
+so there is still no honest framediff against `build/ref_p2`; the palette test
+above is the part-2 result that *is* measured.  The live screenshot is what the
+real screen looks like at counter 127, and the framebuffer is not in the
+`/proc/<pid>/mem` dump (DOSBox keeps `A0000` there as `0xff`, as does ours after
+a planar clear), so the screenshot -- not the dump -- is the reference for the
+picture side.
+
+`tests/test_vga.mjs` pins the boot rule now (entry from the snapshot, `0xbd5`
+only as the fallback), so this cannot silently come back.
 
 ## How the page plays the demo
 

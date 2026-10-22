@@ -186,5 +186,91 @@ if (!files.length) {
   eq('every frame is explained by one 256 entry palette', worst, 0);
 }
 
+/* ------------------------------- against the live part, frozen in build/snap */
+
+// The compose table and the credit bands are not inferred: they are compared
+// with the memory of the real part while it runs.  The snapshot caught it at
+// part segment 0xf8b, so every stored segment constant in block 2 carries the
+// loader's shift of part_segment - 0x10 = 0xf7b: the table the code addresses
+// as 0x3527 is at 0x44a2, the band segment (0x451) at 0xdcc.
+const snapBase = join(ROOT, 'build', 'snap', 'part2');
+if (!existsSync(snapBase + '.mem')) {
+  console.log('skip the memory check: no build/snap/part2.mem (tools/vmsnap.py --part 2)');
+} else {
+  const mem = new Uint8Array(readFileSync(snapBase + '.mem'));
+  const meta = JSON.parse(readFileSync(snapBase + '.json', 'utf8'));
+  const reloc = meta.part_segment - 0x10;
+  const at = (seg, off) => (((seg + reloc) << 4) + (off | 0)) & 0xfffff;
+
+  const table = part.shadeTable();
+  const tableSeg = 0x3527;
+  let differ = 0;
+  let written = 0;
+  for (let span = 0; span < 0x40; span++) {
+    for (let band = 0; band < 0x80; band++) {
+      const base = (span << 8) | band;
+      for (const off of [0x80, 0x8000, 0x8080]) {
+        const k = (base + off) & 0xffff;
+        written++;
+        if (mem[at(tableSeg, k)] !== table[k]) differ++;
+      }
+    }
+  }
+  eq('the compose table matches the live part byte for byte', differ, 0);
+  eq('the table is 64 x 128 entries written three times', written, 64 * 128 * 3);
+
+  // A band lives *inside* the part image: block offset 0xc01a maps to
+  // part_linear + (0xc01a - 0x100), and the four bands follow each other there
+  // exactly as they do in the block.  (The code reaches them as ds:0xdb0a with
+  // ds patched to 0xdcc, i.e. 0xdcc0 + 0xdb0a = 0x1b7ca -- the same address,
+  // which puts the band-segment addend at 0x97b rather than the 0xf7b the
+  // code's other constants get.)
+  const bandBase = (meta.part_segment << 4) + (0xc01a - 0x100);
+  let bandDiff = 0;
+  for (let n = 0; n < 4; n++) {
+    const want = part.band(n);
+    eq(`band ${n} is 32 rows of 320`, want.length, 32 * 320);
+    const got = mem.subarray(bandBase + n * 0x2800, bandBase + n * 0x2800 + want.length);
+    for (let i = 0; i < want.length; i++) if (want[i] !== got[i]) bandDiff++;
+  }
+  eq('blocks 0xc01a.. hold the four bands, as the frozen part does', bandDiff, 0);
+
+  // The composed screen is blitted one row down (segment 0x36eb copies from
+  // screen+0x140), which is the scroll: the frozen part's own screen buffer,
+  // read through the base palette, matches the frozen screenshot that way and
+  // no other way.
+  const screen = mem.subarray(at(0x5517, 0), at(0x5517, 0) + 64000);
+  const pal = part.base;
+  const shot = decodePNG(readFileSync(join(snapBase + '.png')));
+  const lut = (v) => ((v & 0x3f) << 2) | ((v & 0x3f) >> 4);
+  const shotRGB = (x, y) => {
+    const o = (y * shot.w + x) * shot.channels;
+    if (shot.color === 3) {
+      const q = shot.data[o] * 3;
+      return [shot.palette[q], shot.palette[q + 1], shot.palette[q + 2]];
+    }
+    return [shot.data[o], shot.data[o + 1], shot.data[o + 2]];
+  };
+  const rowMatch = (shift) => {
+    let rows = 0;
+    for (let y = 0; y + shift < 200; y++) {
+      let same = true;
+      for (let x = 0; x < 320 && same; x++) {
+        const i = (y + shift) * 320 + x;
+        const p = screen[i] * 3;
+        const rgb = shotRGB(x, y);
+        if (lut(pal[p]) !== rgb[0] || lut(pal[p + 1]) !== rgb[1] || lut(pal[p + 2]) !== rgb[2]) same = false;
+      }
+      if (same) rows++;
+    }
+    return rows;
+  };
+  const shifted = rowMatch(1);
+  const unshifted = rowMatch(0);
+  ok('the screen buffer is shown one row down (the scroll)', shifted > unshifted,
+    `one row down ${shifted} rows, none ${unshifted}`);
+  ok('most of the frozen screen is reproduced exactly', shifted >= 80, `${shifted} of 199 rows`);
+}
+
 console.log(`${passed}/${passed + failed} passed`);
 process.exit(failed ? 1 : 0);

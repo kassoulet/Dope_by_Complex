@@ -23,9 +23,16 @@
  *   retired (a single 64 entry palette cannot show the 70..107 colours those
  *   frames hold; a 256 entry one can, and does).
  *
+ * What is transcribed here beyond the colour side is the screen *compositor*:
+ * the shade table (segment 0x1998), the credit bands (they sit inside the part
+ * image at block 0xc01a, 0x2800 bytes each) and the compose loop (segment
+ * 0x3680) that turns the 3D buffer plus a band into the 320x200 index picture.
+ * The whole pipeline is in the comment on the screen pipeline constants below.
+ * Only the 3D engine that fills the span buffer is still missing.
+ *
  * Everything below is read out of the part's own block, so the values are the
  * original's, not a guess.  `tests/test_part2.mjs` checks them against the
- * reference frames.
+ * reference frames and against the frozen part's memory.
  *
  * Where the code is (block 2 file offsets; the loader maps file offset 0x100
  * at the part segment, so segment offset = block offset - 0x100):
@@ -38,8 +45,9 @@
  *           cs:0x1a09, chain to the old vector when the tick was not ours
  *   0x2680  the frame hook the ISR calls: object animation counters, the
  *           palette rewrite above, and the frame counter cs:0x1928
- *   0x1a67  builds the 128x128 diagonal gradient map the texture loop reads
- *   0x27c6  texture mapped span inner loop
+ *   0x1998  builds the 64 x 128 compose table (`shadeTable` below)
+ *   0x360c  per-frame screen: band strip, compose through that table, blit
+ *   0x26c0  texture mapped span inner loop (the 3D engine)
  *   0x381e  "show the current object for cx frames": draw until the ISR has
  *           advanced cs:0x1928 by cx
  */
@@ -48,6 +56,44 @@ import { findBlocks } from './rnc.js';
 
 export const W = 320;
 export const H = 200;
+
+/* ------------------------------------------------------- the screen pipeline
+ *
+ * Part 2's screen is not the 3D engine's output directly: the engine fills a
+ * 320x200 index buffer and block 0x370c (segment 0x360c) turns it into the
+ * picture once per frame, in this order:
+ *
+ *   0x360c  wait until the ISR has bumped cs:0x1924 (one frame)
+ *   0x3621  es = 0x4527, di = 0x6e00, cx = 0xa00: fill the 0x2800 byte band
+ *           strip from `n = [cs:0x1904]`:  -2 keeps the previous band, -1 is
+ *           black, 0 is the 0x80808080 grey, anything else copies
+ *           ds:0xdb0a + n*0x2800 from the band segment (block 0x4510)
+ *   0x3680  the compose, 0x7d00 times on word pairs: for each of the 64,000
+ *           screen pixels, `byte = map[(span << 8) | band]` where `span` is the
+ *           3D buffer at ds=0x5517 and `band` the strip at es=0x4527
+ *   0x36e3  blit: ds = 0x5517, es = 0xa000, 0x3ed0 dwords from screen+0x140 to
+ *           A0000+0, i.e. one 320 pixel row down, which is the vertical scroll
+ *   0x36f9  clear the band strip for the next frame
+ *   0x2a1c..the scroll: [cs:0x1955] += [cs:0x1957] per frame in the hook, and
+ *           anything outside 0..0x4b turns the scroll off
+ *
+ * The map itself is built at segment 0x1998 into the segment at 0x3527 (0x44a2
+ * once the loader's +0xf7b has been added), and `shadeTable()` below is that
+ * builder.  It is checked against the live demo's memory, not inferred: the
+ * 24,576 bytes it writes are byte identical to the ones in the running part.
+ */
+export const SHADE_SLOPE_SPAN = 0x1a0;
+export const SHADE_SLOPE_BAND = 0x60;
+export const SHADE_WRITES = [0x80, 0x8000, 0x8080]; // [bx+0x80], [bx-0x8000], [bx-0x7f80]
+
+/** Block 2 offset of band 0; the bands are 0x2800 bytes (32 rows) apart. */
+export const BAND_OFFSET = 0xc01a;
+export const BAND_BYTES = 0x2800;
+export const BAND_ROWS = BAND_BYTES / W; // 32
+export const BAND_COUNT = 0x10; // the script only reaches the first few
+
+/** The blit starts one 320 pixel row into the screen buffer (segment 0x36eb). */
+export const SCREEN_SHIFT = W;
 
 export const PART_BLOCK = 2; // DOPE.EXE block 2 is the part that follows part 1
 export const PALETTE_HEAD_OFFSET = 0x65080; // 0x2d0 bytes, block 0x6507:0x10
@@ -127,5 +173,48 @@ export class Part2 {
    */
   static fadeStep(frames) {
     return Math.min(FADE_TOP, (frames | 0) * FADE_STEP);
+  }
+
+  /* ----------------------------------------------------------- the picture */
+
+  /**
+   * The compose lookup table (segment 0x1998, at fs = 0x3527): a 64 x 128
+   * table of palette indices, each entry
+   *
+   *   0x80 | (((0x1a0 * span + 0x60 * band) >> 1) + (that & 1) >> 8 & 0x7f)
+   *
+   * written three times, so the same entry is reachable from three bases.  The
+   * high bit is always set, which is why every composed pixel uses the upper
+   * half of the DAC.  Read with `table[((span << 8) | band) + 0x80]`.
+   */
+  shadeTable(out = new Uint8Array(0x10000)) {
+    for (let span = 0x3f; span >= 0; span--) {
+      for (let band = 0x7f; band >= 0; band--) {
+        const v = SHADE_SLOPE_SPAN * span + SHADE_SLOPE_BAND * band;
+        const value = 0x80 | ((((v >> 1) + (v & 1)) >> 8) & 0x7f);
+        const base = (span << 8) | band;
+        for (const off of SHADE_WRITES) out[(base + off) & 0xffff] = value;
+      }
+    }
+    return out;
+  }
+
+  /** Band `n` of the credits background, straight out of block 2. */
+  band(n) {
+    const at = BAND_OFFSET + (n | 0) * BAND_BYTES;
+    return this.block.subarray(at, at + BAND_BYTES);
+  }
+
+  /**
+   * The compose loop (segment 0x3680): one palette index per screen pixel.
+   * `span` is the 3D buffer, `bg` the band strip; both are 64,000 bytes, and a
+   * band byte of 0 keeps the 3D pixel's own colour (span << 8).
+   */
+  compose(span, bg, out = new Uint8Array(W * H)) {
+    const table = this.shade || (this.shade = this.shadeTable());
+    for (let i = 0; i < W * H; i++) {
+      out[i] = table[(((span[i] << 8) | bg[i]) + 0x80) & 0xffff];
+    }
+    return out;
   }
 }

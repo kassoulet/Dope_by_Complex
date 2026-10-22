@@ -73,7 +73,12 @@ export class Machine {
     cpu.sreg[2] = 0x8000;      // stack segment: free RAM below video memory
     cpu.r[4] = 0xfffe;         // esp
     cpu.sreg[1] = seg;
-    cpu.ip = meta.entry ?? PART_ENTRY;
+    // A snapshot names the entry it caught the part at (`entry_cs_ip`); part 1
+    // is the only part whose entry is the fixed 0xbd5 offset, so falling back
+    // to that constant for any other part starts the CPU in the middle of
+    // its data rather than its code.
+    cpu.ip = meta.entry ?? (Array.isArray(meta.entry_cs_ip) ? meta.entry_cs_ip[1] : PART_ENTRY);
+    this.entryIp = cpu.ip;
     cpu.cf = 0;
     this.vga.setMode(0x03);
     this.vga.clock = 0;
