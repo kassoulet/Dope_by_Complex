@@ -532,40 +532,56 @@ part's own *code*, the list is never terminated, and the sorter at `3585`
 whole explanation of the "span loop does not terminate" note: it was the list,
 not the spans.
 
-With both in place the part runs from its own block, and the numbers are these
-(`node tools/part2run.mjs`, one run, 4e8 instructions):
+With both in place the part runs from its own block.  The run was slow at
+first because of a **rig bug in the 32 bit signed divide**, not a part 2 one.
+The projection does `imul eax,[cs:0x191c] / idiv ebp`, and for a vertex in front
+of the camera the 64 bit dividend in `EDX:EAX` is negative.  `tools/vm/x86.js`
+combined `EDX:EAX` as an *unsigned* 64 bit number, so a projected x became
+millions of pixels wide and the span fill looped 64 K times.  `tests/test_x86.mjs`
+now pins the signed pair.  With that fixed (`node tools/part2run.mjs`):
 
-* setup at `376c` → `629,685` instructions until the draw `3310` -- the first
-  span entry is 222 instructions later;
+* setup at `376c` → the draw `3310` in `629,685` instructions, the first span
+  entry 222 instructions later;
 * before that draw the two objects have built a polygon list of **271** entries
   at `gs:0` (terminated at index 271), from the object records at `cs:0x184a`
   and `cs:0x1884`;
-* the first span starts at column **276** (`0x2e60 = 0x01141099`, 16.16, the
-  integer in the high word) -- a screen column, where a part booted without the
-  object records read `-17769` out of another scene;
-* the draw finishes and the first blit lands at **347,870,761** instructions
-  (28 s in the rig): 42,680 non-black pixels, 13 index values, the part's own
-  DAC.  Later screens from the same boot reach 52,869 non-black pixels, so the
-  engine really is filling the picture.
+* the first span is `0xf44900c4`/`0xf57880c3` = `-2999`/`-2696` in 16.16, off
+  the left of the picture.  (The old note said 276; that was the unsigned
+  quotient, not a screen column.)  Booted without the object records the edge
+  is `0xba97 = -17769`, a vertex from another scene;
+* the first blit lands at **1.4 M instructions** (0.4 s in the rig) with
+  11,272 non-black pixels and 13 index values, and six blits take 12 M
+  instructions (1 s).  One frame no longer costs 3.5e8 instructions.
 
-What that frame is **not** is one of the reference frames: `build/ref_p2` is
-`39..57 s` into part 2, i.e. hundreds of counts further into the script, and the
-run writes a frame per blit at 28 s of rig time each.
+That run is still not a frame-by-frame reproduction: the timer is free, so the
+counter advances 100..200 counts while a frame is being drawn.  The counter at
+the first blit is 118, at the second 310, and the picture is composed from a
+state that moved during the draw.
 
-Where the pictures still disagree is worth writing down, because it is narrow.
-The frames the blit hands to `A0000` hold exactly **10,240 pixels with bit 7
-set** -- the credit band, which is the compose's signature, every composed
-pixel having `0x80` forced in -- and 53,760 pixels with values `1..20`, i.e.
-raw engine output, darker than the `0x80..0xb9` the frozen screen holds.  So the
-compose has covered the band and not the rest of the screen at the instant the
-blit runs, and the engine's own values are one to two orders of magnitude below
-the original's.  That is a lead for the next pass (the span fill's texture and
-shade lookups, `fs:[bx]` and `mov si,[cs:eax*2+...]`), not a missing piece of
-the structure.  So there is still no
-framediff against `build/ref_p2`, and the honest statement is the one the tool
-prints: part 2 boots from `DOPE.EXE` and renders, one frame per ~3.5e8
-instructions, and reaching the captured counters is a matter of hours of rig
-time, not a missing piece of the engine.
+### One frame per tick
+
+`tools/part2frames.mjs` takes the timer out of the loop: it swallows the PIT
+reloads, calls the part's own frame hook (`cs:0x2580`, through the far pointer
+at `cs:0x1a09`) once at the screen routine's wait, and lets the draw run with the
+state frozen.  The counter then advances by exactly one per blit -- one frame,
+as on the 486 -- and a frame costs ~0.03 s of rig time after the first one.
+
+```
+node tools/part2frames.mjs --frames 438 --out build/out/p2frames --png-every 20
+```
+
+The first frame is counter 1 and the 438th is counter 438.  `tests/test_part2_frames.mjs`
+pins that order, two frame digests and the credits band: the band is the
+part's own 0x2800 bytes at block `0x1201a` composed through the part's own
+shade table, and 85% of the band's rows in frame 1 are byte exact (the rest is
+the 3D layer over it).
+
+What is still not exact is the **3D layer**.  Against `build/ref_p2` the best of
+the 438 band-0 frames matches `ref_0000` in **35,180 of 64,000 pixels**; the
+credit rows are almost exact (rows 70..89: 6,381 of 6,400; rows 90..124: 9,747
+of 11,200) and the two discs are where the differences are.  So the screen
+machinery around the engine is reproduced and the engine runs, but the frame is
+not yet the captured one.  That is the honest count, not a zero.
 
 The palette, shade table, bands and compose tests below are what is *exact*;
 the live screenshot is what the real screen looks like at counter 127, and the
@@ -574,10 +590,11 @@ framebuffer is not in the `/proc/<pid>/mem` dump (DOSBox keeps `A0000` there as
 is the reference for the picture side.
 
 `tests/test_vga.mjs` pins the boot rule (entry from the snapshot, `0xbd5` only
-as the fallback), and `tests/test_part2.mjs` pins the frozen state quoted
-above, the 28 relocated words (word for word against the frozen part), the `gs`
-rule, and that a boot from the block reaches its draw with 271 polygons whose
-first span starts at column 276 -- so none of it can silently drift.
+as the fallback), `tests/test_x86.mjs` the signed divide, `tests/test_part2.mjs`
+the frozen state quoted above, the 28 relocated words (word for word against
+the frozen part), the `gs` rule, and that a boot from the block reaches its draw
+with 271 polygons whose first span is -2999 -- so none of it can silently
+drift.  `tests/test_part2_frames.mjs` pins the one-tick frames.
 
 ## How the page plays the demo
 

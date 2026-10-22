@@ -39,6 +39,8 @@ tools/framediff.py exact pixel comparison of a frame against a reference
 tools/vmsnap.py   freezes DOSBox-X and dumps guest RAM + part segment + screen
 tools/part1check.mjs  renders part 1 from DOPE.EXE alone, for framediff
 tools/vmrun.mjs   runs that image in tools/vm/ and renders frames as PNG
+tools/part2run.mjs   boots part 2 from block 2 alone (loader relocation + gs)
+tools/part2frames.mjs  part 2 one frame per timer tick, to .idx/.pal/.png
 tools/png.mjs     tiny PNG encoder used by the frame tools
 tools/modtest.mjs renders DOPE.MOD with web/js/transport.js  song clock: tick scheduling, seek (no mixing), duration
 web/js/mod.js to a wav
@@ -69,6 +71,8 @@ node tests/test_rnc.mjs          # the JS decompressor against the same CRCs
 node tests/test_part1.mjs        # part 1: picture, scroll units, palette, frames
 node tests/test_part2.mjs        # part 2: palette, shade table and bands, checked against
                                  # build/ref_p2 and the frozen part's memory
+node tests/test_part2_frames.mjs # part 2 in the rig: one frame per timer tick, band, digests
+node tests/test_x86.mjs          # the rig's 32 bit signed divide (part 2's projection)
 node tests/test_browser.mjs      # the real page in headless Chrome: audio, pause, seek, loop
 node tests/test_transport.mjs    # seek == continuous playback, song duration
 node tests/test_mod.mjs          # player: header, sample tables, seek == playback
@@ -88,6 +92,10 @@ python3 tools/framediff.py build/ref/ref_0001.png build/out/part1_0498.png --bbo
 python3 tools/probe.py --wait 16   # load layout in emulated memory
 python3 tools/vmsnap.py --wait 12 --out build/snap/part1   # memory + screen
 node tools/vmrun.mjs build/snap/part1 --frame 498 --png build/out/vm498.png
+
+# part 2 from its own block, one frame per timer tick (needs build/block02...)
+node tools/part2frames.mjs --frames 438 --out build/out/p2frames --png-every 20
+node tools/part2run.mjs --blits 6        # free-running timer, for comparison
 ```
 
 `tools/parity.py` renders the module through the JS replayer and through
@@ -177,13 +185,17 @@ scroll and palette crossfade at the original's timing.
 
 Reconstructed: the geometry and the effects of parts 2..7.  `docs/ANALYSIS.md`
 records what the original code does; `docs/RUNTIME.md` records what was
-measured on the running demo.  Part 2's 3D layer is captured but not ported: it is a
-software 3D engine (transform, projection, texture mapped spans).  It does now
-run -- `tools/part2run.mjs` redoes the loader (28 relocated words and a data
-segment in `gs`) and boots the part from `DOPE.EXE` alone, after which it builds
-271 polygons and blits real frames -- but one frame costs ~3.5e8 instructions
-in the rig, so it cannot be run out to the counters `build/ref_p2` was captured
-at.  What *is* exact about the part is the screen machinery around that engine
+measured on the running demo.  Part 2's 3D layer is still not ported to the
+page: it is a software 3D engine (transform, projection, texture mapped spans).
+It does run in the rig -- `tools/part2run.mjs` redoes the loader (28 relocated
+words and a data segment in `gs`) and boots the part from `DOPE.EXE` alone,
+after which it builds 271 polygons and blits real frames -- and
+`tools/part2frames.mjs` now drives it one frame per timer tick, 438 frames in
+about 15 s (the old 3.5e8 instructions per frame was a rig bug in 32 bit signed
+`idiv`, pinned by `tests/test_x86.mjs`).  The frames are not yet the captured
+ones: the best of those 438 matches `build/ref_p2/ref_0000` in 35,180 of
+64,000 pixels, with the credit rows almost exact and the discs still differing.
+What *is* exact about the part is the screen machinery around that engine
 (`web/js/part2.js`, checked by `tests/test_part2.mjs` against `build/ref_p2`
 and the frozen part's memory):
 

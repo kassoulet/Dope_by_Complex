@@ -32,10 +32,18 @@
  * It does run in the verification rig -- `tools/part2run.mjs` redoes the
  * loader (28 relocated words, plus the data segment `gs` must hold) and boots
  * the part from its block, which then builds 271 polygons and blits frames.
+ * `tools/part2frames.mjs` goes further and drives it one frame per timer tick
+ * (the PIT is held off and the part's own frame hook is called at the screen
+ * wait), so counters 1..438 can be rendered in seconds; the best of those
+ * matches a captured frame in 35,180 of 64,000 pixels, with the credit rows
+ * almost exact and the discs still differing.  That rig is verification, not
+ * this page: the picture here is still the look-alike in look.js.
  *
  * Everything below is read out of the part's own block, so the values are the
  * original's, not a guess.  `tests/test_part2.mjs` checks them against the
- * reference frames and against the frozen part's memory.
+ * reference frames and against the frozen part's memory; `tests/test_x86.mjs`
+ * pins the signed 32 bit divide the projection needs, and
+ * `tests/test_part2_frames.mjs` the one-tick frames.
  *
  * Where the code is (block 2 file offsets; the loader maps file offset 0x100
  * at the part segment, so segment offset = block offset - 0x100):
