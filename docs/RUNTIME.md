@@ -550,7 +550,18 @@ With both in place the part runs from its own block, and the numbers are these
 
 What that frame is **not** is one of the reference frames: `build/ref_p2` is
 `39..57 s` into part 2, i.e. hundreds of counts further into the script, and the
-run writes a frame per blit at 28 s of rig time each.  So there is still no
+run writes a frame per blit at 28 s of rig time each.
+
+Where the pictures still disagree is worth writing down, because it is narrow.
+The frames the blit hands to `A0000` hold exactly **10,240 pixels with bit 7
+set** -- the credit band, which is the compose's signature, every composed
+pixel having `0x80` forced in -- and 53,760 pixels with values `1..20`, i.e.
+raw engine output, darker than the `0x80..0xb9` the frozen screen holds.  So the
+compose has covered the band and not the rest of the screen at the instant the
+blit runs, and the engine's own values are one to two orders of magnitude below
+the original's.  That is a lead for the next pass (the span fill's texture and
+shade lookups, `fs:[bx]` and `mov si,[cs:eax*2+...]`), not a missing piece of
+the structure.  So there is still no
 framediff against `build/ref_p2`, and the honest statement is the one the tool
 prints: part 2 boots from `DOPE.EXE` and renders, one frame per ~3.5e8
 instructions, and reaching the captured counters is a matter of hours of rig
