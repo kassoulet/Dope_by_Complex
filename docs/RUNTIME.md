@@ -362,6 +362,23 @@ standalone run has to relocate those immediates.  That is the next step before
 any transcoding: the rig has to execute part 2 first, the way it executed part
 1, and the frames it produces have to match `build/ref_p2`.
 
+**A first attempt, and where it stops.**  Loading block 2 at a segment,
+relocating every `push imm16` that is followed by `pop ds/es/fs/gs` plus the
+two tables at `cs:0x400`/`cs:0x408` by adding that segment (the loader's rule as
+part 1 shows it), and starting at block `0x386c` does run the part: 2336 timer
+interrupts, `cs:0x1928` advancing, the script stepping through its `call
+0x381e` waits, mode 13h set, the DAC holding the base palette above.  But the
+part never writes video memory at all -- the draw loop walks an empty polygon
+list and returns.  The two segments that span loop loads (`mov fs,[cs:0x2e8e]`,
+`mov ds,[cs:0x2e8c]`, filled from the phase tables) come out as `0x1e71` and
+`0` at run time although the tables hold relocated values, so the part computes
+them from data whose relocation is not the simple "add the part segment" the
+`push imm16` idiom uses.  Finding the loader's own patch list is what unlocks
+it; until then there are no part-2 pixels from the rig, and no honest way to
+compare a transcoding against it.  The rig itself now takes an entry point and
+a counter offset from the snapshot (`tools/vm/machine.js`), so a part with
+different offsets can be booted without touching it again.
+
 ## How the page plays the demo
 
 `web/` runs the demo in order: `part1.js` draws until `counterAt(t)` reaches

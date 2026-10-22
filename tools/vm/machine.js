@@ -62,7 +62,9 @@ export class Machine {
     this.installBiosStubs();
     const seg = meta.part_segment;
     this.partSeg = seg;
-    this.counterBase = ((seg << 4) + COUNTER) & 0xfffff;
+    // Part 1's counter is at 0x16a; other parts keep theirs elsewhere (part 2's
+    // frame counter is the dword at 0x1928), so a snapshot can name it.
+    this.counterBase = ((seg << 4) + (meta.counter_offset ?? COUNTER)) & 0xfffff;
     this.bootVector = this.cpu.read32(0x20);
 
     const cpu = this.cpu;
@@ -71,7 +73,7 @@ export class Machine {
     cpu.sreg[2] = 0x8000;      // stack segment: free RAM below video memory
     cpu.r[4] = 0xfffe;         // esp
     cpu.sreg[1] = seg;
-    cpu.ip = PART_ENTRY;
+    cpu.ip = meta.entry ?? PART_ENTRY;
     cpu.cf = 0;
     this.vga.setMode(0x03);
     this.vga.clock = 0;
