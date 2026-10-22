@@ -41,6 +41,7 @@ tools/part1check.mjs  renders part 1 from DOPE.EXE alone, for framediff
 tools/vmrun.mjs   runs that image in tools/vm/ and renders frames as PNG
 tools/part2run.mjs   boots part 2 from block 2 alone (loader relocation + gs)
 tools/part2frames.mjs  part 2 one frame per timer tick, to .idx/.pal/.png
+tools/part2diff.py  exact-pixel comparison of those frames with build/ref_p2
 tools/png.mjs     tiny PNG encoder used by the frame tools
 tools/modtest.mjs renders DOPE.MOD with web/js/transport.js  song clock: tick scheduling, seek (no mixing), duration
 web/js/mod.js to a wav
@@ -96,6 +97,8 @@ node tools/vmrun.mjs build/snap/part1 --frame 498 --png build/out/vm498.png
 # part 2 from its own block, one frame per timer tick (needs build/block02...)
 node tools/part2frames.mjs --frames 438 --out build/out/p2frames --png-every 20
 node tools/part2run.mjs --blits 6        # free-running timer, for comparison
+python3 tools/part2diff.py build/out/p2frames build/ref_p2/ref_0000.png
+                                 # best exact-pixel count, no rounding up
 ```
 
 `tools/parity.py` renders the module through the JS replayer and through

@@ -568,6 +568,7 @@ as on the 486 -- and a frame costs ~0.03 s of rig time after the first one.
 
 ```
 node tools/part2frames.mjs --frames 438 --out build/out/p2frames --png-every 20
+python3 tools/part2diff.py build/out/p2frames build/ref_p2/ref_0000.png
 ```
 
 The first frame is counter 1 and the 438th is counter 438.  `tests/test_part2_frames.mjs`
