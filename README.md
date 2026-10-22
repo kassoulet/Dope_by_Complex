@@ -49,6 +49,7 @@ tools/vm/machine.js memory map, 8253 timer, int 8, int 10h/21h, snapshot boot
 web/js/rnc.js     RNC ProPack decompressor -- reads the blocks out of DOPE.EXE
 web/js/part1.js   part 1 transcoded: picture + scroll + palette, written as pixels
 web/js/part1player.js clocks that at the original's 69 Hz and paints the canvas
+web/js/part2.js   what is exact about part 2 so far: its 256 entry palette
 web/js/engine.js  320x200 8 bit framebuffer, palette, polygon rasteriser
 web/js/mod.js     28 channel ProTracker/GUS replayer
 web/js/look.js       look-alikes of parts 2..end, timeline measured from the original
@@ -65,6 +66,8 @@ docs/RUNTIME.md   measured runtime: video mode, code layout, load addresses
 python3 tests/test_tools.py      # EXE header, 8 RNC blocks + CRCs, MOD layout
 node tests/test_rnc.mjs          # the JS decompressor against the same CRCs
 node tests/test_part1.mjs        # part 1: picture, scroll units, palette, frames
+node tests/test_part2.mjs        # part 2: palette out of block 2, checked against build/ref_p2
+node tests/test_browser.mjs      # the real page in headless Chrome: audio, pause, seek, loop
 node tests/test_transport.mjs    # seek == continuous playback, song duration
 node tests/test_mod.mjs          # player: header, sample tables, seek == playback
 node tests/test_vga.mjs          # the verification rig's VGA (40 checks)
@@ -172,9 +175,14 @@ scroll and palette crossfade at the original's timing.
 
 Reconstructed: the geometry and the effects of parts 2..7.  `docs/ANALYSIS.md`
 records what the original code does; `docs/RUNTIME.md` records what was
-measured on the running demo.  Part 2 is captured but not transcoded: its
-frames hold more than 64 DAC colours, so it rewrites the palette inside the
-visible frame and needs a per line model, not part 1's one palette per counter.
+measured on the running demo.  Part 2 is captured but not ported: it is a
+software 3D engine (transform, projection, texture mapped spans) whose data
+addresses are segment constants the loader relocates.  What *is* exact about
+it is its colour side -- all 256 DAC entries, loaded from the block and
+rewritten every timer tick through a 64 entry fade ramp, which explains the
+70..107 colours per frame without any per line palette (`web/js/part2.js`,
+`tests/test_part2.mjs`; an earlier note here claimed the opposite and was a
+miscount of part 1's 192 entry palette).
 
 Original: (c) 1995 Complex — jmagic / jugi / reward.  Music replay routine
 based on Oskari Tammelin's ProTracker for GUS, as credited in `DOPE.TXT`.

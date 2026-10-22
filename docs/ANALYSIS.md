@@ -206,6 +206,13 @@ was **transcoded** into `web/js/part1.js`, which reproduces those frames from
 the demo's own data with no emulator (see `docs/RUNTIME.md`).  The emulator
 remains as verification rigging under `tools/vm/`.
 
-Parts 2..7 are not captured yet: the `web/` page opens with the original part 1
-and hands over to procedurally drawn scenes when that part ends (see
-`docs/RUNTIME.md`).
+Part 2 is captured (`build/ref_p2`) and its 
+frame and colour model is measured, but the part itself is not ported (see
+`docs/RUNTIME.md` for the entry points, the ISR and the palette).  Blocks 2..7
+each link in their own copy of the same 3D engine at a different offset -- block
+2's starts around `0x1c60` (vertex transform), `0x1d60` (projection),
+`0x2981`/`0x3420` (polygon fill) and `0x27c6` (texture span loop) -- and
+they address their data through segment constants that the loader relocates,
+so they cannot be run from the file alone without reproducing that patch.  The
+`web/` page opens with the original part 1 and hands over to procedurally drawn
+scenes when that part ends.

@@ -143,7 +143,36 @@
 <li><b>A 32-bit address in a 16-bit segment:</b> <code>mov si,[cs:eax*2+0]</code> carries the <code>0x67</code> prefix. The "+0" displacement is another patched address.</li>
 <li><b>Segments as free pointer registers:</b> <code>fs</code>, <code>ds</code>, <code>es</code> and <code>cs</code> each address a different table or buffer, so the loop needs no base-register arithmetic.</li>
 </ul>
-<p class="note">I read the two lookups as a map that selects a shading row (SI) and a texture fetch through it, which fits the shaded environment-map look of the captures. I haven't traced the data to confirm what the two segments hold.</p>
+<p class="note">The segment registers are not an accident: <code>ds</code> and <code>fs</code> are loaded from two four-entry tables at <code>cs:0x400</code> and <code>cs:0x408</code> indexed by the sub-pixel phase of the span start, i.e. one texture/shading pair per pixel phase. <code>fs</code> addresses the 128x128 byte map that <code>0x1a67</code> builds at block <code>0x35270</code>; what <code>ds</code> holds is still inference. The segment values themselves are block-relative constants that the loader relocates (it adds the part's base segment to them), like part 1's <code>push 0xe4</code>.</p>
+
+<h2>9. A part that never needed a per-line palette</h2>
+<pre><code>1B21  cli
+1B22  push ax / push dx
+1B24  mov al,0x20 / out 0x20,al     <span class="cm">; EOI</span>
+1B28  inc word [cs:0x1a1f]          <span class="cm">; tick counter</span>
+1B2D  mov dx,0x3da / in al,dx
+1B31  test al,8 / jz 0x1b30         <span class="cm">; wait for the START of vertical retrace</span>
+1B35  mov dx,[cs:0x1a05]            <span class="cm">; calibrated divisor</span>
+1B3A  mov al,0x30 / out 0x43,al / out 0x40,al / out 0x40,ah
+1B47  call far [cs:0x1a09]          <span class="cm">; the frame hook</span>
+1B4C  mov ax,[cs:0x1a05]
+1B50  add [cs:0x1a07],ax            <span class="cm">; carry = a BIOS tick is due</span>
+1B57  jc 0x1b5a / iret              <span class="cm">; chain to the old handler only then</span></code></pre>
+<pre><code>268B  mov ax,[cs:0x1957] / add [cs:0x1955],ax   <span class="cm">; a bounce offset</span>
+26AB  cmp word [cs:0x193f],1 / jnz 0x26f6      <span class="cm">; fade running?</span>
+26B3  mov ax,[cs:0x1941]
+26CA  add word [cs:0x1941],0xff               <span class="cm">; 64 steps to the top</span>
+26D1  mov dx,0x100 / mov bx,0x2510 / call 0x2650   <span class="cm">; rebuild the 64 entry ramp</span>
+26DA  xor bx,bx / mov si,0x1f10 / mov cx,0x300
+26E2  mov dx,0x3c8 / xor al,al / out dx,al
+26E9  mov bl,[cs:si] / mov al,[cs:bx+0x2510] / out dx,al
+26F3  loop 0x26e9                 <span class="cm">; 768 DAC bytes, through the ramp</span>
+2738  inc dword [cs:0x1924] / inc dword [cs:0x1928]</code></pre>
+<p>This is the whole colour side of part 2: <b>all 256 DAC entries</b>, rewritten in one go from a fixed base palette, each byte passed through a 64 entry brightness table that ramps up to the identity over 64 ticks. The interrupt waits for the start of vertical retrace before it does it, so the palette changes between frames and not inside one. The two lessons here:</p>
+<ul>
+<li><b>Count the entries before believing in mid-frame palette tricks.</b> These frames hold 70..107 colours, which a 192 entry part 1 palette cannot explain but a 256 entry palette explains trivially. Every colour of all ten reference frames comes out of the base palette at ramp step 0x100, which is what retired the earlier "per line palette" reading (<code>tests/test_part2.mjs</code>).</li>
+<li><b>The fade is a table lookup on the palette, not on the picture.</b> 768 bytes of <code>out</code> per tick is cheap on a 486; retouching the screen would not have been.</li>
+</ul>
 
 <h2>Bonus: projection with the rounding folded into the centre offset</h2>
 <pre><code>1E04  sar eax,3

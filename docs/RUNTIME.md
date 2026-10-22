@@ -283,7 +283,7 @@ own DAC held), a frame digest per reference counter, the clock
 (`counterAt`, 5376 counts in 38.96 s) and that an RGBA write matches the index
 frame through the 6 bit DAC.
 
-## Part 2 and later: captured, not transcoded yet
+## Part 2: the structure, and the palette mistake this section used to make
 
 Part 1 ends 39 s after the demo starts, i.e. about 55 s after launching
 DOSBox-X (the loader spends ~16 s setting up the GUS before the counter starts
@@ -293,20 +293,66 @@ running).  A capture from that point on is in `build/ref_p2`:
 python3 tools/refcapture.py --start 55 --seconds 20 --interval 2 --out build/ref_p2
 ```
 
-Ten frames, 55..74 s, and they are no longer part 1's scroller: the picture
-fills the screen and each frame holds **70..107 distinct colours, all on the
-6 bit DAC lattice**.  A single 64 entry palette can only produce 64 of those,
-so the DAC is being rewritten *inside* the visible frame — part 2 cannot be
-transcoded with part 1's "one palette per counter" model; it needs the palette
-per line (or the per line write pattern that produces it).
+Ten frames, 55..74 s.  Each holds **70..107 distinct colours, all on the 6 bit
+DAC lattice**, and this note used to conclude from that "a single 64 entry
+palette cannot produce those, so the DAC is rewritten inside the visible
+frame — part 2 needs a per line model".  **That was wrong, and the mistake was
+part 1's palette size.**  Part 1 loads `0xc0` DAC entries (`0xc24`); part 2
+loads all **256** (`0x300` bytes at block `0x38af`), so 70..107 colours is an
+ordinary frame, not a mid-frame palette change.  Checked, not argued:
 
-The emulator path does not just work on part 2 either: `tools/vmsnap.py` keys
-on the part's ISR at `<segment>:0x20` (block offset `0x120`), and blocks 2 and 3
-have a different layout — no retrace wait at `0x110`, no ISR at `0x120`, no
-entry at `0xcd5`; those offsets hold ramp tables (`f900`, `f901`, `f902` …).
-A snapshot at 62 s therefore reports "no running part found".  The next step is
-to locate part 2's entry point and timer handler per block instead of reusing
-part 1's offsets, then snapshot and inspect its video writes.
+* the base palette is 768 bytes of 6 bit values, two spans of block 2 — `0x2d0`
+  bytes at block `0x65080` (copied from `0x6507:0x10`) and `0x30` bytes at block
+  `0x2bffa` (copied from `0x2bd2:0x2da`) — loaded to `cs:0x1f10` at part entry;
+* the timer interrupt rewrites those 768 bytes every tick as
+  `palette[i] = ramp[base[i]]` (block `0x2680`), where `ramp` is the 64 entry
+  table built by block `0x2650` from the word at `cs:0x1941`, stepped by `0xff`
+  per interrupt and saturating at `0x3f00` — a fade up out of black over 64
+  ticks, after which the ramp is the identity and the DAC holds the base
+  palette unchanged;
+* **every colour of all ten reference frames is in that 256 entry palette**
+  (0 missing per frame, at ramp step `0x100`), so one palette per frame
+  accounts for the picture.  `web/js/part2.js` and `tests/test_part2.mjs`
+  implement and check exactly this.
+
+### Where part 2's code is (block 2 file offsets; segment offset = block − 0x100)
+
+| block | what |
+|-------|------|
+| `0x386c` | the part's main function: setup, `0x1a98`, `0x387f`, then `int 21h` exit |
+| `0x387f` | `int 10h` mode 13h, copy the palette spans, wait retrace, write 768 DAC bytes, clear `cs:0x0..0x30a`, attribute `0x31`/`0x20` = 0, point `cs:0x1a09` at the frame hook (`cs:0x2580` = block `0x2680`), call `0x1b5f` (sequencer/CRTC setup), build the gradient map |
+| `0x1b21` | timer ISR: `cli`, EOI, `inc word [cs:0x1a1f]`, **wait for the start of vertical retrace**, reload the PIT from `cs:0x1a05`, `sti`, `call far [cs:0x1a09]`, add the divisor to `cs:0x1a07`, `iret` (or chain to the saved vector on carry) |
+| `0x1bbf` | PIT calibration: one shot, wait for retrace, latch, `neg ax`, `imul eax,0x3e8 / shr eax,11` |
+| `0x2680` | the frame hook: per-object animation, the palette rewrite above, `inc dword [cs:0x1924]` and `inc dword [cs:0x1928]` |
+| `0x1a67` | fills a 128x128 map at block `0x35270` (rows 0x100 apart, 0x80 used) with `(0x18*x + 0xe8*y) >> 8`; the script sets the slope byte `cs:0x1965` to `0x18` |
+| `0x381e` | "show the current object for `cx` frames": draw, then wait until the ISR has advanced `cs:0x1928` |
+| `0x38f6` | the script: `mov word/dword [cs:state],imm` followed by `call 0x381e`, up to `0x44ed` |
+
+Rendering is a software 3D engine, still **not ported**: `0x364a` walks the
+object records at `cs:0x1810` (0x3a bytes each, terminated by 0/`0xffff`),
+`0x3685` builds the polygon list, `0x3410` draws it, `0x370c` copies to
+`A000:0` (behind a `cs:0x1904` mode: `-2` a row from `0x451:0xdb0a`,
+`-1` black, `0` `0x80808080`, `1` from `0xec3`), the vertices are transformed
+by `0x1c60` and projected by `0x1d60` (`idiv` by depth, centre `0xa0`/`0x64`,
+y scaled 3/32 against x's 1/8), and the spans are texture mapped by
+`0x27c6..0x27fa` with the texture gradients patched into the instruction
+stream.  The polygon list lives at `gs = 0x2ccd` (block `0x2ccd0`), 4 byte
+indices into vertex arrays at `gs:0x6720`, `gs:0x7148`, `gs:0x7b70`.
+
+### Why the verification rig cannot see part 2 yet
+
+`tools/vmsnap.py` keys on part 1's ISR bytes at `<segment>:0x20` (block
+`0x120`), and block 2's layout is different: the ISR is at block `0x1b21`
+(segment `0x1a21`) and part entry is `0x386c`/`0x387f`, not `0xcd5`.  Worse,
+the parts address their own data through **relocated segment constants**: the
+code says `push 0x4527` / `pop es` and the loader adds the part's base segment
+(the same patch that turns part 1's `push 0xe4` into `push 0x105f`).  Block 2
+does that everywhere (`0x2ccd`, `0x3527`, `0x4527`, `0x6507`, `0x2bd2`, and the
+four-entry tables at `cs:0x400`/`cs:0x408` that select a texture and a shade
+segment per sub-pixel phase), so a snapshot has to find the part's base, and a
+standalone run has to relocate those immediates.  That is the next step before
+any transcoding: the rig has to execute part 2 first, the way it executed part
+1, and the frames it produces have to match `build/ref_p2`.
 
 ## How the page plays the demo
 
