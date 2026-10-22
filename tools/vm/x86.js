@@ -438,9 +438,14 @@ export class CPU {
       this.setR(EDX, 2, r & 0xffff);
       return;
     }
-    const n = (BigInt(this.r[EDX]) << 32n) | BigInt(this.r[EAX]);
+    // EDX:EAX is a 64 bit dividend but the registers are stored unsigned, so
+    // a signed division has to sign extend the pair; dividing the raw value
+    // gives a wildly wrong quotient whenever the dividend is negative (part
+    // 2's projection does exactly that).
+    const raw = (BigInt(this.r[EDX]) << 32n) | BigInt(this.r[EAX]);
+    const n = signed ? BigInt.asIntN(64, raw) : raw;
     const d = BigInt(signed ? (v | 0) : (v >>> 0));
-    const q = n / d;
+    const q = n / d; // BigInt division truncates toward zero, as x86 does
     const r = n % d;
     this.r[EAX] = Number(q & 0xffffffffn) >>> 0;
     this.r[EDX] = Number(r & 0xffffffffn) >>> 0;

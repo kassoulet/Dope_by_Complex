@@ -433,14 +433,17 @@ if (existsSync(join(ROOT, 'build', 'block02_00f66c.bin'))) {
   eq('and terminate it', cpu2.read16(gsBase + polys * 4), 0xffff);
   eq('the draw runs to the end of the list', spans.length, 6);
 
-  // The span endpoints are 16.16 with the integer part in the high word.  With
-  // the object records relocated they are screen columns: every polygon the
-  // draw starts on has at least one end on the picture.  Booted without them
-  // the first span's left edge was 0xba97 = -17769, i.e. an edge from another
-  // scene, and the fill ran off the screen for a hundred million instructions.
-  const x = (v) => v >>> 16;
-  eq('the first span starts at column 276, on the picture', x(spans[0][0]), 276);
-  ok('the edges are screen columns, not another scene\'s', x(spans[0][0]) < 512,
+  // The span endpoints are 16.16 with the integer part in the high word, and
+  // they are *signed* screen columns.  With the object records relocated the
+  // first vertex projects to -2999, off the left of the picture; booted without
+  // them the edge was 0xba97 = -17769, i.e. a vertex from another scene.  The
+  // old 276 pinned here was the result of the rig's unsigned 32 bit IDIV, which
+  // made a negative dividend produce a quotient millions of times too large
+  // (see tests/test_x86.mjs); it was not a screen column at all.
+  const x = (v) => (v | 0) >> 16;
+  eq('the relocated objects project the first span to -2999', x(spans[0][0]), -2999);
+  ok('the edges stay inside a signed 16 bit screen column range',
+    spans.every(([a, b]) => x(a) > -32768 && x(a) < 32768 && x(b) > -32768 && x(b) < 32768),
     spans.map(([a, b]) => x(a) + '/' + x(b)).join(' '));
 }
 
