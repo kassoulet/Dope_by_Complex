@@ -362,6 +362,18 @@ standalone run has to relocate those immediates.  That is the next step before
 any transcoding: the rig has to execute part 2 first, the way it executed part
 1, and the frames it produces have to match `build/ref_p2`.
 
+**The loader's relocation rule, measured.**  `tools/vmsnap.py --part 2` now
+finds and freezes the running part (it keys on the block's own ISR bytes and on
+the `int 8` vector pointing at `<segment>:0x1a21`), and a snapshot taken at 58 s
+confirms the layout: part segment `0xf8b`, entry bytes identical to block 2 at
+`0x386c`, counter 127.  Diffing the snapshot's part against the block file gives
+the rule the loader uses: **a stored segment constant is patched by adding
+`part_segment - 0x10`**, not `part_segment`.  Block `0x500` holds `0x6538,
+0x6540, 0x6d38, 0x6540` and the running part holds `0x74b3, 0x74bb, 0x7cb3,
+0x74bb`, i.e. +`0xf7b` for a part at `0xf8b` -- and `0xf8b0 - 0x100` is where
+block offset 0 gets mapped, which is exactly why the addend is one paragraph
+short.  That is the same `0xf7b` part 1's `push 0xe4` shows.
+
 **A first attempt, and where it stops.**  Loading block 2 at a segment,
 relocating every `push imm16` that is followed by `pop ds/es/fs/gs` plus the
 two tables at `cs:0x400`/`cs:0x408` by adding that segment (the loader's rule as
@@ -373,9 +385,18 @@ list and returns.  The two segments that span loop loads (`mov fs,[cs:0x2e8e]`,
 `mov ds,[cs:0x2e8c]`, filled from the phase tables) come out as `0x1e71` and
 `0` at run time although the tables hold relocated values, so the part computes
 them from data whose relocation is not the simple "add the part segment" the
-`push imm16` idiom uses.  Finding the loader's own patch list is what unlocks
-it; until then there are no part-2 pixels from the rig, and no honest way to
-compare a transcoding against it.  The rig itself now takes an entry point and
+`push imm16` idiom uses.  With the measured addend above (`- 0x10`) the run is
+still empty: 30 M instructions, 1750 timer frames, the script stepping, and
+**not one store to video memory**.  So the draw loop believes the polygon list
+is empty and returns; the remaining unknown is the pointer the record setup
+hands it (`cs:0x1810` records, `0x3685` building the list), not the video side.
+The snapshot replay from the entry diverges earlier still (it ends up executing
+the ramp tables at `cs:0x1e0`), most likely because a part is not restartable
+from its own entry once its saved `int 8` vector and its script position are
+part of the state.  A snapshot of the *live* screen is available (and the
+framebuffer is not in the `/proc/<pid>/mem` dump -- DOSBox keeps `A0000` there
+as `0xff`), but without frames from the rig there is no honest way to compare a
+transcoding against `build/ref_p2` yet.  The rig itself now takes an entry point and
 a counter offset from the snapshot (`tools/vm/machine.js`), so a part with
 different offsets can be booted without touching it again.
 

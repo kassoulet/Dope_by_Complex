@@ -38,8 +38,19 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DBOX = os.environ.get('DBOX', '/tmp/dbox/root/usr/bin/dosbox-x')
 DBOX_LIB = os.environ.get('DBOX_LIB', '/tmp/dbox/root/usr/lib/x86_64-linux-gnu')
 
-# 20 bytes of the part's timer ISR, taken from block 1 offset 0x120.  The
-# handler is copied verbatim into every overlay, so this identifies a part.
+# Per part: (block file offset of its timer ISR body, block file offset of its
+# entry, offset and size of the counter the ISR advances, 16 byte signature).
+# The signature is read out of the part's own block so it cannot go stale; the
+# IVT entry at guest 0x20 must point at `<segment>:<isr segment offset>`.
+PARTS = {
+    1: {'block': 'block01_002c6a.bin', 'isr': 0x120, 'entry': 0xCD5,
+        'counter': (0x16A, 2),
+        'sig': 'fa1e060fa00fa86660b020e6202eff061e00'},
+    2: {'block': 'block02_00f66c.bin', 'isr': 0x1B21, 'entry': 0x386C,
+        'counter': (0x1928, 2),
+        'sig': 'fa5052b020e6202eff061f1abada03ec'},
+}
+
 ISR = bytes.fromhex('fa1e060fa00fa86660b020e6202eff061e00')
 PART_ENTRY = 0xCD5 - 0x100   # block file offset -> offset in the loaded part
 COUNTER = 0x16A              # `inc word [cs:0x16a]` in the ISR
@@ -116,7 +127,7 @@ class Guest(object):
                 out.append((lo, hi))
         return sorted(out)
 
-    def find_base(self, limit=64 << 20):
+    def find_base(self, isr=ISR, isr_offset=0x20, limit=64 << 20):
         """Locate guest physical 0 and the running part's segment.
 
         The ISR body is found by content, then the guest base is the value that
@@ -127,21 +138,21 @@ class Guest(object):
             if hi - lo > limit:
                 hi = lo + limit
             data = self.read(lo, hi - lo)
-            pos = data.find(ISR)
+            pos = data.find(isr)
             while pos >= 0:
                 for seg in range(0x100, 0x1000):
-                    base = pos - (seg << 4) - 0x20
+                    base = pos - (seg << 4) - isr_offset
                     if base < 0 or base + 0x100000 > len(data):
                         continue
                     if data[base + 0x20:base + 0x24] == \
-                            ((seg << 16) | 0x20).to_bytes(4, 'little'):
+                            ((seg << 16) | isr_offset).to_bytes(4, 'little'):
                         return lo + base, seg, data
-                pos = data.find(ISR, pos + 1)
+                pos = data.find(isr, pos + 1)
         return None, None, None
 
-    def counter(self, base, seg):
+    def counter(self, base, seg, offset=COUNTER, size=2):
         part = base + (seg << 4)
-        raw = self.read(part + COUNTER, 2)
+        raw = self.read(part + offset, size)
         return int.from_bytes(raw, 'little')
 
 
@@ -186,9 +197,23 @@ def main():
                     help='give up after this many seconds of looking')
     ap.add_argument('--out', default=os.path.join(ROOT, 'build', 'snap', 'part1'))
     ap.add_argument('--display', default=':77')
+    ap.add_argument('--part', type=int, default=1, choices=sorted(PARTS),
+                    help='which demo part is running when the snapshot is taken')
     ap.add_argument('--max-counter', type=int, default=128,
                     help='snapshot only while the part is early in its run')
     args = ap.parse_args()
+
+    spec = PARTS[args.part]
+    block_path = os.path.join(ROOT, 'build', spec['block'])
+    if not os.path.exists(block_path):
+        print('missing %s (run tools/unpack.py first)' % block_path)
+        return 2
+    with open(block_path, 'rb') as f:
+        block = f.read()
+    isr = bytes.fromhex(spec['sig'])
+    isr_offset = spec['isr'] - 0x100      # block offset -> segment offset
+    part_entry = spec['entry'] - 0x100
+    counter_offset, counter_size = spec['counter']
 
     for tool in ('Xvfb', 'xwininfo', 'import', 'convert'):
         if not os.path.exists(DBOX):
@@ -228,11 +253,11 @@ def main():
                 return 1
             if guest is None:
                 guest = Guest(proc.pid)
-            base, seg, region = guest.find_base()
+            base, seg, region = guest.find_base(isr, isr_offset)
             if base is None:
                 time.sleep(0.5)
                 continue
-            cnt = guest.counter(base, seg)
+            cnt = guest.counter(base, seg, counter_offset, counter_size)
             if 0 < cnt:
                 print('part segment %#06x  captured at counter %d' % (seg, cnt))
                 break
@@ -256,28 +281,29 @@ def main():
         os.kill(proc.pid, signal.SIGSTOP)
         try:
             mem = guest.read(base, 0x100000)
-            before = guest.counter(base, seg)
+            before = guest.counter(base, seg, counter_offset, counter_size)
             if geom:
                 grab(args.display, geom, args.out + '.png')
-            after = guest.counter(base, seg)
+            after = guest.counter(base, seg, counter_offset, counter_size)
         finally:
             os.kill(proc.pid, signal.SIGCONT)
 
         part = seg << 4
-        entry = (part + PART_ENTRY) & 0xFFFFF
-        with open(os.path.join(ROOT, 'build', 'block01_002c6a.bin'), 'rb') as f:
-            block1 = f.read()
-        ok_entry = mem[entry:entry + 16] == block1[0xCD5:0xCE5]
+        entry = (part + part_entry) & 0xFFFFF
+        ok_entry = mem[entry:entry + 16] == block[spec['entry']:spec['entry'] + 16]
         meta = {
             'guest_base_host': base,
             'part_segment': seg,
             'part_linear': part,
-            'entry_cs_ip': [seg, PART_ENTRY],
+            'part': args.part,
+            'block': spec['block'],
+            'entry_cs_ip': [seg, part_entry],
             'entry_linear': entry,
             'entry_matches_block': ok_entry,
             'counter': before,
             'counter_after_grab': after,
-            'isr_at': (part + 0x20) & 0xFFFFF,
+            'counter_offset': counter_offset,
+            'isr_at': (part + isr_offset) & 0xFFFFF,
             'mem_bytes': len(mem),
             'screenshot': os.path.basename(args.out) + '.png' if geom else None,
             'window': geom,
@@ -288,7 +314,8 @@ def main():
             json.dump(meta, f, indent=2)
         print(json.dumps(meta, indent=2))
         if not ok_entry:
-            print('warning: entry bytes do not match block 1 at 0xcd5')
+            print('warning: entry bytes do not match %s at 0x%x'
+                  % (spec['block'], spec['entry']))
         return 0 if ok_entry else 1
     finally:
         proc.kill()
