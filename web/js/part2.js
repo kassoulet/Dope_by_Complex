@@ -28,7 +28,10 @@
  * image at block 0x1201a, 0x2800 bytes each) and the compose loop (segment
  * 0x3680) that turns the 3D buffer plus a band into the 320x200 index picture.
  * The whole pipeline is in the comment on the screen pipeline constants below.
- * Only the 3D engine that fills the span buffer is still missing.
+ * Only the 3D engine that fills the span buffer is still missing from the page.
+ * It does run in the verification rig -- `tools/part2run.mjs` redoes the
+ * loader (28 relocated words, plus the data segment `gs` must hold) and boots
+ * the part from its block, which then builds 271 polygons and blits frames.
  *
  * Everything below is read out of the part's own block, so the values are the
  * original's, not a guess.  `tests/test_part2.mjs` checks them against the

@@ -507,22 +507,66 @@ What is wrong is the *state*, and the frozen memory says exactly why.
 
 So there is no contradiction left to chase in the span code: a single snapshot
 cannot rebuild its own screen, because the two buffers the last frame consumed
-are gone by the time the snapshot is taken.  Matching `build/ref_p2` needs the
-part **run from its entry to the captured counters**, and one frame of this
-engine costs `10^8..10^9` instructions in the rig (6..60 s), while the capture
-spans `39..57 s` of part 2.  That is the honest blocker, and it is a cost
-problem, not an unknown.
+are gone by the time the snapshot is taken.  The part has to be **run from its
+own entry** instead -- which is what `tools/part2run.mjs` now does.
 
-Until it is paid there is no framediff against `build/ref_p2`; the palette,
-shade table, bands and compose tests above are the part-2 results that *are*
-measured.  The live screenshot is what the real screen looks like at counter
-127, and the framebuffer is not in the `/proc/<pid>/mem` dump (DOSBox keeps
-`A0000` there as `0xff`, as does ours after a planar clear), so the screenshot
--- not the dump -- is the reference for the picture side.
+### What the loader actually does, and the part running from its own block
+
+Dumping the block, running it and comparing the result with the frozen part
+settles the loader completely.  It touches **28 words of the block**, every one
+of them `+ (part_segment - 0x10)` (0xf7b for a part at 0xf8b):
+
+| where | what |
+|-------|------|
+| 21 code immediates | `push imm` followed by `pop ds/es/fs/gs`: `0x1a68, 0x1a99, 0x1d6d, 0x3413, 0x3422, 0x3484, 0x3686, 0x3722, 0x3744, 0x3769, 0x376d, 0x3771, 0x379b, 0x37bf, 0x37c3, 0x37e4, 0x37fa, 0x3813, 0x388b, 0x389c, 0x3b5e` |
+| 5 phase-table entries | the four pairs at `cs:0x400` and `cs:0x408` that pick a texture and a shade segment per sub-pixel phase |
+| 2 object records | the **first word of each record** at `cs:0x184a` and `cs:0x1884`: `0x1e71` -> `0x2dec` and `0x2121` -> `0x309c` |
+
+and one thing that is not in the block at all: **`gs` must be the part's data
+segment**, `part + 0x2ccd - 0x10`.  Nothing in the part sets it before `354a`
+runs, and `354a` ends with `mov word [gs:si],0xffff` -- the polygon list
+terminator.  Booted with `gs` left at the part segment, that write lands in the
+part's own *code*, the list is never terminated, and the sorter at `3585`
+(`mov eax,[si] / test ax,ax / js`) walks memory for ever: the run that used
+**4 billion instructions and never wrote a byte to video memory**.  That is the
+whole explanation of the "span loop does not terminate" note: it was the list,
+not the spans.
+
+With both in place the part runs from its own block, and the numbers are these
+(`node tools/part2run.mjs`, one run, 4e8 instructions):
+
+* setup at `376c` → `629,685` instructions until the draw `3310` -- the first
+  span entry is 222 instructions later;
+* before that draw the two objects have built a polygon list of **271** entries
+  at `gs:0` (terminated at index 271), from the object records at `cs:0x184a`
+  and `cs:0x1884`;
+* the first span starts at column **276** (`0x2e60 = 0x01141099`, 16.16, the
+  integer in the high word) -- a screen column, where a part booted without the
+  object records read `-17769` out of another scene;
+* the draw finishes and the first blit lands at **347,870,761** instructions
+  (28 s in the rig): 42,680 non-black pixels, 13 index values, the part's own
+  DAC.  Later screens from the same boot reach 52,869 non-black pixels, so the
+  engine really is filling the picture.
+
+What that frame is **not** is one of the reference frames: `build/ref_p2` is
+`39..57 s` into part 2, i.e. hundreds of counts further into the script, and the
+run writes a frame per blit at 28 s of rig time each.  So there is still no
+framediff against `build/ref_p2`, and the honest statement is the one the tool
+prints: part 2 boots from `DOPE.EXE` and renders, one frame per ~3.5e8
+instructions, and reaching the captured counters is a matter of hours of rig
+time, not a missing piece of the engine.
+
+The palette, shade table, bands and compose tests below are what is *exact*;
+the live screenshot is what the real screen looks like at counter 127, and the
+framebuffer is not in the `/proc/<pid>/mem` dump (DOSBox keeps `A0000` there as
+`0xff`, as does ours after a planar clear), so the screenshot -- not the dump --
+is the reference for the picture side.
 
 `tests/test_vga.mjs` pins the boot rule (entry from the snapshot, `0xbd5` only
 as the fallback), and `tests/test_part2.mjs` pins the frozen state quoted
-above, so none of it can silently drift.
+above, the 28 relocated words (word for word against the frozen part), the `gs`
+rule, and that a boot from the block reaches its draw with 271 polygons whose
+first span starts at column 276 -- so none of it can silently drift.
 
 ## How the page plays the demo
 

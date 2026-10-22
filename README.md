@@ -178,11 +178,12 @@ scroll and palette crossfade at the original's timing.
 Reconstructed: the geometry and the effects of parts 2..7.  `docs/ANALYSIS.md`
 records what the original code does; `docs/RUNTIME.md` records what was
 measured on the running demo.  Part 2's 3D layer is captured but not ported: it is a
-software 3D engine (transform, projection, texture mapped spans) whose data
-addresses are segment constants the loader relocates, and one frame of it costs
-10^8..10^9 instructions in the verification rig -- so the part can be run from
-its entry but not out to the counters the reference capture covers.  What *is*
-exact about the part is the screen machinery around that engine
+software 3D engine (transform, projection, texture mapped spans).  It does now
+run -- `tools/part2run.mjs` redoes the loader (28 relocated words and a data
+segment in `gs`) and boots the part from `DOPE.EXE` alone, after which it builds
+271 polygons and blits real frames -- but one frame costs ~3.5e8 instructions
+in the rig, so it cannot be run out to the counters `build/ref_p2` was captured
+at.  What *is* exact about the part is the screen machinery around that engine
 (`web/js/part2.js`, checked by `tests/test_part2.mjs` against `build/ref_p2`
 and the frozen part's memory):
 

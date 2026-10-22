@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 
 import { Part2, PALETTE_ENTRIES, FADE_STEP, FADE_TOP, FADE_FRAMES } from '../web/js/part2.js';
 import { Machine } from '../tools/vm/machine.js';
+import { loadImage, boot, PART_SEGMENT, ENTRY, COUNTER, DATA_SEGMENT } from '../tools/part2run.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -367,6 +368,80 @@ if (existsSync(snapBase + '.mem')) {
   let bad = 0;
   for (let i = 0; i < 64000; i++) if (got[i] !== want[i]) bad++;
   eq('the original\'s compose writes what compose() predicts', bad, 0);
+}
+
+/* ---------------------- booting part 2 from its own block (the loader, redone)
+ *
+ * The part is not self contained: the loader relocates 28 words of its block and
+ * hands it a data segment in gs.  `tools/part2run.mjs` reproduces that, and the
+ * strongest check available is to compare the image it builds with the image the
+ * real loader left in memory -- at every word either of them touched.
+ */
+if (existsSync(join(ROOT, 'build', 'block02_00f66c.bin'))) {
+  const block2 = new Uint8Array(readFileSync(join(ROOT, 'build', 'block02_00f66c.bin')));
+  const image = loadImage(block2, PART_SEGMENT);
+  eq('the loader patches 21 code immediates', image.code, 21);
+  eq('and the 5 entries of the two phase tables', image.tables, 5);
+  eq('and the first word of both object records', image.objects, 2);
+
+  if (existsSync(snapBase + '.mem')) {
+    const frozen = new Uint8Array(readFileSync(snapBase + '.mem'));
+    const part = PART_SEGMENT * 16;
+    const plain = new Uint8Array(1 << 20);
+    plain.set(block2.subarray(0x100), part);
+    let touched = 0;
+    let wrong = [];
+    for (let i = 0; i < block2.length - 0x100; i++) {
+      if (image.mem[part + i] === plain[part + i]) continue;
+      touched++;
+      if (image.mem[part + i] !== frozen[part + i] && wrong.length < 6) {
+        wrong.push((0x100 + i).toString(16));
+      }
+    }
+    ok('the relocated image is the one the original loader left in memory', wrong.length === 0,
+      `${wrong.length} words differ (${wrong.join(' ')}) of ${touched} changed bytes`);
+  }
+
+  // The part's own code sets gs only inside the transform and the draw; the
+  // polygon list terminator is written through gs by 0x354a, which runs before
+  // either of them.  Without this register the write lands in the part's code
+  // and the sorter walks memory for ever -- the run that executed 4e9
+  // instructions without one write to video memory.
+  const m2 = boot(image.mem, { part_segment: PART_SEGMENT, entry: ENTRY, counter_offset: COUNTER });
+  eq('boot hands the part its data segment in gs', m2.cpu.sreg[5],
+    (PART_SEGMENT + DATA_SEGMENT - 0x10) & 0xffff);
+
+  const cpu2 = m2.cpu;
+  const part = PART_SEGMENT * 16;
+  const spans = [];
+  let drawAt = -1;
+  let n = 0;
+  const step2 = cpu2.step.bind(cpu2);
+  cpu2.step = function () {
+    if (drawAt < 0 && this.ip === 0x3310) drawAt = n;
+    if (this.ip === 0x2660 && spans.length < 6) {
+      spans.push([cpu2.read32(part + 0x2e60), cpu2.read32(part + 0x2e64)]);
+    }
+    step2();
+  };
+  while (n < 8e6 && spans.length < 6 && !m2.stopped && !m2.exited) { cpu2.step(); m2.tick(); n++; }
+
+  ok('the part reaches its draw', drawAt > 0, `draw at ${drawAt}`);
+  const polys = cpu2.read16(part + 0x1933);
+  ok('the two objects build a polygon list before it draws', polys > 100, `${polys} polygons`);
+  const gsBase = cpu2.sreg[5] << 4;
+  eq('and terminate it', cpu2.read16(gsBase + polys * 4), 0xffff);
+  eq('the draw runs to the end of the list', spans.length, 6);
+
+  // The span endpoints are 16.16 with the integer part in the high word.  With
+  // the object records relocated they are screen columns: every polygon the
+  // draw starts on has at least one end on the picture.  Booted without them
+  // the first span's left edge was 0xba97 = -17769, i.e. an edge from another
+  // scene, and the fill ran off the screen for a hundred million instructions.
+  const x = (v) => v >>> 16;
+  eq('the first span starts at column 276, on the picture', x(spans[0][0]), 276);
+  ok('the edges are screen columns, not another scene\'s', x(spans[0][0]) < 512,
+    spans.map(([a, b]) => x(a) + '/' + x(b)).join(' '));
 }
 
 console.log(`${passed}/${passed + failed} passed`);
