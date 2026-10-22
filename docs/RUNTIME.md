@@ -454,14 +454,25 @@ So the engine is not the blocker any more; the span loop is.  It does not
 terminate: `26fa` is `inc bp / jnz 26c6` and the count comes from `sub bp,dx`,
 while the outer scanline loop is `dec word [cs:0x2654]` -- and `2660` fills that
 counter with a store that has **no `cs:` prefix** (`mov [0x2654],dx`, i.e.
-`ds:`).  At that point the part's `ds` is a picture segment (`0x74b3`), not
-`cs`, so the counter the outer loop tests is never written: 200 M instructions
-without once reaching the blit at `3740`.  The same shape shows in the loop's
-self-patched immediates (`add ecx,0x0`, `add edx,0x0`, `add [cs:0x2650],0x0` are
-all zero in the file) -- the gradients the caller is supposed to write in are
-not there either.  Both are one question: which register set the renderer
-expects on entry (its `ds` convention and the patch site that fills those four
-immediates), which is where a transcription of `0x2900`/`0x2b20` would start.
+`ds:`), then sets `ds` from `cs:0x2e8c` afterwards, so it assumes the caller
+runs with `ds == cs`.  Two experiments, both done, narrowed it:
+
+* forcing `ds = cs` on every entry to `2660` makes spans *return* (21 entries,
+  6 returns, and the outer counter now works) -- so that is a real convention,
+  not the hang;
+* the hang is the span's own length.  At `2660` the packed edge values are
+  `2e60 = 0x01141099`, `2e64 = 0xbbe29e38`, i.e. one edge has a huge negative
+  slope, and the resulting span is ~64 K pixels, which at ten instructions a
+  pixel is a million instructions per span.
+
+The projected vertex arrays next door are plausible (`0x332f0` and `0x33d18`
+hold small screen coordinates like `0x14, 0x10, 0x1c`), so the transform is
+running; the polygon being fed to the span filler is degenerate.  That is
+consistent with a part that cannot be restarted from its own entry: the object
+records live in `cs:0x1810` and the geometry comes from the loader's level map
+(the six segment words of block 0 above), which a boot from block 2 alone does
+not reproduce.  Reproducing that map is the next step, not another guess at the
+span code.
 
 Until that is answered the rig can boot and run part 2 but produces no frames,
 so there is still no honest framediff against `build/ref_p2`; the palette test
