@@ -463,7 +463,15 @@ runs with `ds == cs`.  Two experiments, both done, narrowed it:
 * the hang is the span's own length.  At `2660` the packed edge values are
   `2e60 = 0x01141099`, `2e64 = 0xbbe29e38`, i.e. one edge has a huge negative
   slope, and the resulting span is ~64 K pixels, which at ten instructions a
-  pixel is a million instructions per span.
+  pixel is a million instructions per span;
+* enforcing the convention does let the whole renderer finish: **348 M
+  instructions after boot the first blit runs and 16,080 dwords land in
+  `A0000`.**  The frame is a real part-2 picture (133 colours, the part's own
+  DAC), but it is not any reference frame -- the booted part is at its own
+  frame 1, not at the captured state -- and some span entries still arrive with
+  a leaked `ds` (a data segment, not `cs`), so this is a working renderer, not
+  yet a faithful run.  At 348 M instructions per frame it is also three orders
+  of magnitude too slow to serve as a measuring instrument for a whole part.
 
 The projected vertex arrays next door are plausible (`0x332f0` and `0x33d18`
 hold small screen coordinates like `0x14, 0x10, 0x1c`), so the transform is
