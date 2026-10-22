@@ -11,9 +11,13 @@
 export const W = 320, H = 200;
 export const DEMO_END = 435; // the capture shows the original exiting to DOS at ~433 s
 
-// [start s, end s, name]; i-th reference frame is t = 39 + 3 i
+// [start s, end s, name]; i-th reference frame is t = 39 + 3 i.
+// The credits/ribbons cut is measured, not guessed: frame 11 (t=72) and the
+// 2 s capture in build/ref_p2 (up to t=57) still show the two soft
+// environment-mapped blobs and the credit text, frame 12 (t=75) is mid wipe
+// and frame 13 (t=78) is the next scene, so part 2 ends at about 76 s.
 export const PARTS = [
-  [39, 72, "credits"], [72, 144, "ribbons"], [144, 186, "phong"], [186, 249, "fire"],
+  [39, 76, "credits"], [76, 144, "ribbons"], [144, 186, "phong"], [186, 249, "fire"],
   [249, 270, "fractal"], [270, 282, "checker"], [282, 303, "env"], [303, 342, "bump"],
   [342, 393, "shadow"], [393, 411, "light"], [411, 426, "world"], [426, DEMO_END, "end"],
 ];

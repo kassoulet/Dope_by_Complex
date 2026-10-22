@@ -293,7 +293,8 @@ running).  A capture from that point on is in `build/ref_p2`:
 python3 tools/refcapture.py --start 55 --seconds 20 --interval 2 --out build/ref_p2
 ```
 
-Ten frames, 55..74 s.  Each holds **70..107 distinct colours, all on the 6 bit
+Ten frames, 55..74 s, i.e. 39..57 s of the demo itself (part 1 ends at 39 s;
+the loader spends about 16 s before the counter moves).  Each holds **70..107 distinct colours, all on the 6 bit
 DAC lattice**, and this note used to conclude from that "a single 64 entry
 palette cannot produce those, so the DAC is rewritten inside the visible
 frame — part 2 needs a per line model".  **That was wrong, and the mistake was
@@ -314,6 +315,13 @@ ordinary frame, not a mid-frame palette change.  Checked, not argued:
   (0 missing per frame, at ramp step `0x100`), so one palette per frame
   accounts for the picture.  `web/js/part2.js` and `tests/test_part2.mjs`
   implement and check exactly this.
+
+Part 2 ends at about 76 s of the demo.  In `build/ref_full` frame 11 (t=72)
+still has the credits composition (two soft environment-mapped blobs top and
+bottom, the credit lines between them), frame 12 (t=75) is a wipe and frame 13
+(t=78) is the next scene, while the 2 s capture in `build/ref_p2` is still
+credits at its last frame (t=57).  `web/js/look.js` puts its look-alike
+boundary at 76 s for that reason (it used to cut at 72, four seconds early).
 
 ### Where part 2's code is (block 2 file offsets; segment offset = block − 0x100)
 
