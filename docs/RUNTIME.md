@@ -1,0 +1,319 @@
+# DOPE runtime — what the original actually does
+
+This is the reference material for the pixel-exact port.  Everything here was
+measured against the real `DOPE.EXE` running in DOSBox-X with Gravis Ultrasound
+emulation, not inferred from the file alone.  `tools/refcapture.py` records the
+screen (native 320x200, `P` mode PNGs) and `tools/probe.py` reads the emulated
+RAM while the demo runs.
+
+## Video
+
+Only `INT10:Set Video Mode 13` appears in the DOSBox-X log: there is no VESA
+mode and no text mode.  But the parts **reprogram the card heavily after that
+call**, so "plain mode 13h" is wrong:
+
+* part 1 clears the 64 KB at `A0000` (`rep stosd`, `cx = 0x4000`) and then
+  unpacks its picture **once per plane**: the sequencer map mask (`3C4/3C5`
+  index 2) is set to `0x11`, `0x22`, `0x44`, `0x88` in turn, and the loop ends
+  when `rol al,1` lifts bit 7 into carry (so exactly four passes).  Each pass
+  writes 195 rows of 256 bytes, 336 bytes apart (`0x40` dwords per row, then
+  `add di,0x50`), into one plane -- four 64 KB planes hold the picture;
+* the CRTC gets `0x13 = 0xa8` (168 words = a 336 **plane** byte logical line,
+  which the scan-out turns into 1344 pixels; see the scan-out section below),
+  `0x14 = 0` (word mode), `0x17 = 0xe3`, `0x18 = 0x183`, and tweaked `9`/`7`
+  registers; the sequencer memory mode is set to 6 (chain 4 off for the CPU,
+  so the four map-mask passes are planar stores) and the misc output is `0xe3`;
+* the attribute controller is written through index `0x10` (the `0x20` bit in
+  the index byte is the palette-address-source bit, not part of the index) and
+  the value written **clears bit 5**.  Measured on the running part,
+  `attr[0x10] = 0`, so the split screen / line compare feature is *disabled*:
+  the part programmed CRTC `0x18` but never turns the split on, and the scroll
+  is the start address alone.  (An earlier revision of this note claimed the
+  split screen was in use; that was wrong.)
+
+Palette writes go through `3C8`/`3C9`, 6-bit values, from the part's own
+`cs:` tables: index `0xc0` entries built from `cs:0x16c`/`cs:0x1ac` (the two
+256 byte ramps rebuilt every pass from the counter) plus the base tables at
+`cs:0x4f0` and `cs:0x7f8`.
+
+## Code
+
+The overlays are **16-bit code**, not 32-bit.  `pushaw` at `+0x120` is the
+`66 60` form, the retrace wait at `+0x110` is `mov dx,3da / in al,dx`, and the
+whole part-1 main loop is 16-bit address/operand encodings.  The 32-bit
+protected-mode code that does exist (the DPMI calls around `0xE000`) belongs to
+the loader/extender image, not to the parts.
+
+Layout of a part image (offsets into the unpacked block, all relative to the
+part's load segment; the loader maps file offset `0x100` at the segment, so
+block offset `0xcd5` is segment offset `0xbd5`):
+
+| offset | contents |
+|--------|----------|
+| `0x000` | unused / BSS, 0x100 bytes |
+| `0x110` | vertical retrace wait, `ret` |
+| `0x120` | timer ISR: `cli`, EOI, `inc word [cs:0x1e]`, `call 0xc8b` (CRTC start from the counter), retrace wait, PIT reload, `call 0xca3`, `add word [cs:0x16a],2`, `call 0xc24` (palette), `iret` / chain to the saved vector |
+| `0x176` | mode 13h + CRTC/sequencer setup, saves the old `int 8` vector to `cs:0x0`, installs `cs:0x20`, calibrates the PIT |
+| `0x1d6` | PIT calibration: one shot, retrace wait, latch, `neg ax`, `imul eax,0x3de`, `shr eax,11` |
+| `0x232` | restores the saved CRTC registers |
+| `0x266` | palette tables (768 bytes each, 6-bit, consecutive) |
+| `0xc00` | scale/limit a word to 0..0x100: fills 0x40 bytes from `ah`, stepping by `dx` |
+| `0xc24` | palette: 0xc0 DAC entries, `cs:0x16c`/`cs:0x1ac` ramps indexed by `cs:0x4f0`/`cs:0x7f8`, `add`, clamp to 0x3f |
+| `0xc5c` | unpacks a picture: builds a dword from `[si]`, `[si+4]`, `[si+8]`, `[si+0xc]`, stores it at `es:di`, adds one paragraph to `ds` and 4 to `di` per dword, `0x40` dwords per row, then `0x50` to `di`, `0xc3` rows |
+| `0xcd5` | part entry: `int 10h` mode 13h, sequencer/CRTC setup, `rep stosd` of `A0000`, `ds = 0x00e4`, `si = 0x70a`, then four `call 0xc5c` passes with map mask `0x11/0x22/0x44/0x88` (`rol al,1` / `jnc`) |
+| `0xdb5` | main loop: `counter - 0x1f4` into `cs:0x4ec`, rebuild the `cs:0x16c`/`cs:0x1ac` ramps via `0xc00`, `call 0x176`, repeat until `[cs:0x16a] > 0x1500` or ESC on port `0x60`, then restore the CRTC and `mov ax,4c00 / int 21h` |
+
+The part therefore depends on data **outside** its own image: the unpack reads
+from `ds = 0x00e4`, `si = 0x70a`, i.e. linear `0x154a`, in the loader's data
+area below the part.  (An earlier revision of this note said `ds = 0xe40`,
+which was a misreading of `push word 0xe4; pop ds` -- the segment is
+`0x00e4`.)  A port cannot just load a block and jump into it; it has to
+reproduce the loader's memory placement as well.
+
+## Load layout (measured)
+
+While part 1 runs, `tools/probe.py` finds in the emulated address space:
+
+```
+block 0 (loader)      RAM + 0x8270
+block 1 (part 1)      RAM + 0xf7b0
+```
+
+Block 1 is pinned by an exact 16-byte code match: the mode 13h sequence at
+block offset `0xcd5` is found at RAM offset `0x10485`, and `0x10485 - 0xcd5 =
+0xf7b0`.  The loader's own offset moves by a paragraph with the size of the
+DOS environment (`0x8270` in a bare boot, `0x8280` with an extra variable), so
+the stable quantity is the relation: **part 1 = loader + `0x7540`**.  Only the
+loader and the current part are resident; blocks 2..7 are not in memory while
+part 1 runs, so they are overlays loaded on demand.  With a `0x8270` loader the
+part's segment is `0xf7b` and its entry is `0xf7b:0xbd5` -- the loader maps the
+block at file offset `0x100`, so block `0xcd5` is segment offset `0xbd5` (the
+snapshot used below has the part at `0xf8b` and the same `:0xbd5` entry).
+
+## Timing
+
+The timer handler is installed by the part itself (`0x176` saves the old
+`int 8` vector into `cs:0x0` and points the vector at `cs:0x20`), and the
+handler is `cli`, EOI, `inc word [cs:0x1e]`, `call 0xc8b` (which programs the
+CRTC start from the counter), retrace wait, PIT reload, `call 0xca3`,
+`add word [cs:0x16a],2`, `call 0xc24` (the palette), `iret` -- with a chain to
+the saved vector when the interrupt came from the BIOS tick.
+
+The divisor in `cs:0x4` is calibrated, not assumed: `0x1d6` programs the PIT
+for one shot, waits for a retrace, latches the counter (`out 0x43,0`), negates
+it, then `imul eax,0x3de / shr eax,11` (i.e. ×990/2048) before storing it.
+Measured, that gives **69 interrupts per second**, and since the counter is
+advanced by 2 each time, reference screenshots taken 2 s apart differ by 276
+counts (`222, 498, 774, ...`), which is what `tools/refcapture.py` records.
+Part 1 ends when the counter passes `0x1500`, i.e. after 2688 interrupts
+(≈39 s); the counter minus `0x1f4` is also the scroll source, so the picture
+scrolls with the timer, not with a frame counter.
+
+## Ground truth
+
+```
+python3 tools/refcapture.py --start 18 --seconds 8 --interval 2 --out build/ref --tag-counters
+```
+
+writes `build/ref/ref_0000.png` … 320x200, palette PNG, straight from the
+emulated VGA, and (with `--tag-counters`) a `.json` sidecar per frame with the
+part's counter at the instant of the grab (222, 498, 774, …).  Those frames,
+not the old procedural scenes, are the target for the port.  Without the flag
+the tool cannot find the part's counter and writes no sidecars: `--tag-counters`
+keys on the part installing its `int 8` handler at `<segment>:0x20`, which is
+where part 1's ISR lives.
+
+## The verification rig: `tools/vmsnap.py` + `tools/vm/`
+
+The parts are executed here, not reimplemented: `tools/vmsnap.py` freezes
+DOSBox-X while part 1 runs and writes the low 1 MB of guest RAM plus the part
+segment, and `tools/vm/x86.js` / `vga.js` / `machine.js` run that image from
+the part entry (`0xbd5`) with a mode 13h VGA, the 8253 timer and the `int 8`
+vector the part installs.  `node tools/vmrun.mjs build/snap/part1 --frame N
+--png out.png` renders "the picture for counter N", the same key as the
+reference frames.  This is a *measuring instrument*: the port itself does not
+contain it (`web/js/part1.js` writes the frames directly), but it is what
+established every constant the transcode uses, and it still agrees with the
+reference frames and with the transcode frame for frame.
+
+Rendering a frame after the fact needs the card state that defines it: the
+CRTC (start and offset) **and** the attribute controller, because the pixel
+panning register lives there.  `vmsnap`-style frame dumps that restore only the
+CRTC come out wrong for every counter whose panning differs from the last one
+run, which is easy to mistake for a picture problem.
+
+What has been measured with it:
+
+* the snapshot boots and runs: 76 timer interrupts for the first 600k
+  instructions of the main loop, `cs:0x16a` advancing by 2 per interrupt,
+  CRTC start, offset (`0x150` = 336 bytes) and the DAC values are all produced
+  by the original code;
+* **the palette is exact.**  At counter 774 the VM's DAC (as the original code
+  computes it) contains **all 63 colours** of `ref_0002.png` — missing 0.  The
+  6 bit to 8 bit expansion had to match DOSBox (`v << 2 | v >> 4`); expanding
+  with `round(v * 255 / 63)` was off by one for most values and made every
+  non-black pixel differ on its own.
+* **the picture is exact.**  11 of the 15 reference frames are byte identical
+  (`framediff` reports `identical`), the other four differ by 8 pixels each —
+  32 pixels out of 960,000 — the same picture pixels every time (row 194,
+  columns 263..270, source indices `2,2,3,4,5,4,3,3`), where the reference
+  shows 0.  The transcode reproduces this exactly, residue included; the eight
+  pixels are still unexplained, and nothing else differs.
+
+## How the scan-out actually works (measured)
+
+The mismatch that used to be reported here (`38960 / 64000` pixels at counter
+774) was a **units error in this port, not missing picture content**.  The
+reference frames are an exact window into the unpacked picture; the mapping was
+found by searching for each reference row inside the snapshot's picture source
+and reading off the stride, then confirmed on every reference frame:
+
+```
+screen(x, y) = picture[1024 * y + x + (4 * start + pan - 321)]
+```
+
+where `picture` is the 199,680 bytes the unpack reads (four 256 byte plane rows
+per 1024 byte picture row) and `start`/`pan` are the CRTC start register and
+the panning value `attr[0x13] >> 1`.  Equivalently, in the port's terms:
+
+1. **Memory is four planes, and the scan-out assembles four pixels per plane
+   byte**: pixel `4n+p` is byte `n` of plane `p`, i.e. the chain-4 arrangement.
+   That is why the four map-mask passes of the unpack (`0x11`, `0x22`, `0x44`,
+   `0x88`, sequencer 4 = 6 turns chain 4 *off* for the CPU side) lay down a
+   byte-per-pixel picture: pass `p` fills plane `p`, and the display reads the
+   four planes back interleaved.  The picture is 195 rows of 336 plane bytes,
+   which is 200 KB of pixels -- more than the 64 KB window at `A0000`, so the
+   port keeps the whole 256 KB.
+2. **The CRTC start and offset registers count plane bytes**, not display
+   bytes; the port multiplies both by four.  Part 1 programs offset
+   `0x13 = 0xa8` (168 words = 336 plane bytes), which is exactly the row pitch
+   of the strip the unpack writes (`0x40` dwords + `add di,0x50`), so each
+   displayed line is 1344 pixels on.
+3. **The panning register shifts by `value / 2 - 1` pixels.**  The part steps
+   it in twos from the counter (`(counter >> 2) & 3`, doubled, so 0/2/4/6),
+   which gives shifts of -1/0/1/2 while the CRTC start moves in fours: the two
+   together produce the smooth one-pixel-per-four-counts scroll, and the
+   `counter >> 2` in the mapping above.  `4 * start + pan - 321` also pins the
+   picture's base: the unpack starts at plane offset `0x50` = pixel 320, and
+   the display begins one pixel before it.
+4. The scan-out **stops at the end of the 256 KB** instead of wrapping: part
+   1's 195 row picture leaves the last rows of a 200 line scan addressing past
+   the end, and the reference frames show black there.
+
+The loader **patches the part's picture segment at run time**: in the file
+`0xcd5+0xb6` is `push 0xe4`, in memory it is `push 0x105f`, so the unpack reads
+linear `0x10cfa` (block `0x154a`), not `0xe40`.  The snapshot's source there is
+pristine: the 0x30c00 bytes are byte-identical to the block file (0 of 199,680
+differ).
+
+The split screen is not a gap at all: the part clears attribute `0x10` bit 5,
+which disables line compare (measured `attr[0x10] = 0` at counter 774), so
+`render()` does not need it for this part.
+
+`tests/test_vga.mjs` pins the rig's VGA behaviour: the BIOS default DAC, the
+`v << 2 | v >> 4` expansion, the map mask, both host write layouts, the
+four-pixels-per-plane-byte flattening, the start/offset/panning units, the
+scan-out window and the end-of-memory behaviour.
+
+`tools/vmrun.mjs --bytes` and `--nopan` switch the two measured conventions off
+again; with either one the frames stop matching, which is how they were found.
+
+## The transcode: part 1 without a VGA card
+
+Since the effect turned out to be "copy a window out of one picture and hand
+the DAC a running sum of two ramps", part 1 does not need a card, a CRTC or a
+CPU.  `web/js/part1.js` performs the intent on a flat 320x200 index buffer, and
+every constant in it comes from the disassembly of block 1 below.
+
+```
+0xc8b  start     mov bx,[cs:0x16a] / shr bx,4 / out 3d4 index 0c,0d
+                 -> line start 4 * (counter >> 4) pixels
+0xca3  panning   [cs:0x16a] >> 2 & 3, doubled -> out 3c0 index 0x13
+                 -> shift ((counter >> 2) & 3) - 1 pixels
+0xc5c  unpack    ds:si = strip, es:di = 0x50, 4 bytes in from pc16 apart,
+                 0x40 dwords per row, +0x50 after each row, 0xc3 rows
+0xc00  ramp      dx = step; negative -> 0; dx >>= 4; 0x40 entries of ah,
+                 ax += dx while ax <= 0x3f00
+0xc24  palette   0xc0 entries: clamp(ramp16c[tbl4f0[i]] + ramp1ac[tbl7f8[i]], 63)
+0xdb5  main loop d = counter - 0x1f4; ramp16c = ramp(0x1000 - d);
+                 ramp1ac = ramp(d);  stop when counter > 0x1500
+```
+
+The picture strip the unpack reads is at block offset `0x154a` (199,680 bytes:
+`0xc3` rows of 1024), and because one plane byte is four pixels the strip's row
+`r`, byte `k` *is* the picture pixel at `r, k`; the port copies rows into card
+memory instead of running the unpack.  The two palette index tables are at
+block offsets `0x5f0` and `0x8f8`.
+
+**The DAC trails the scroll by four counts.**  The main loop builds the ramps
+from the counter value it reads *after* an interrupt, and the interrupt that
+writes the DAC happens one scroll step later, so a frame at counter `c` uses
+`d = c - 0x1f4 - 4`.  That is measured, not assumed: with a lag of 0 or 2 the
+frame comparison fails on many pixels, with 4 it only fails on the eight pixel
+residue below.
+
+Result, from `DOPE.EXE` alone (`node tools/part1check.mjs build/ref`): **11 of
+the 15 reference frames are byte identical**, the other four differ by 8 pixels
+each — 32 of 960,000.
+
+That residue is one spot in the picture, not four odd frames.  It is picture
+row 194 (the last row), source columns 263..270, values `2,2,3,4,5,4,3,3`, and
+the reference shows 0 there.  Because the window scrolls, only the four frames
+that happen to slide over that spot show it: screens x 253, 184, 115 and 46 as
+the counter advances by 276, i.e. a fixed picture position.  What it is *not*:
+
+* not a scan-out or palette mistake — the 8 pixels use palette entries that
+  hundreds of other pixels in the same frame use and that match, and the rest
+  of row 194 (including real content at columns 700..1019 in the counter 4086
+  frame) matches to the byte;
+* not a per-frame artefact and not introduced by the transcode — the snapshot
+  rig produces the same values, and the strip is byte identical in the
+  snapshot, so both models read `1,2,2,3,4,5,4,3,3,1,1` from the file.
+
+So the reference's card held zeros at those eight picture pixels while the
+executable holds values: a local difference in card memory, about eleven bytes
+wide (the neighbouring index 1 pixels also render black, so they are invisible
+either way).  A fresh capture run was attempted to see whether it reproduces,
+but this capture came out misaligned (its screen is offset by several rows), so
+that question is still open.  Everything else about those frames matches.
+
+`tests/test_part1.mjs` pins the transcode: the strip placement, the scroll
+units, the ramp builder, the palette at counter 774 (the values the original's
+own DAC held), a frame digest per reference counter, the clock
+(`counterAt`, 5376 counts in 38.96 s) and that an RGBA write matches the index
+frame through the 6 bit DAC.
+
+## Part 2 and later: captured, not transcoded yet
+
+Part 1 ends 39 s after the demo starts, i.e. about 55 s after launching
+DOSBox-X (the loader spends ~16 s setting up the GUS before the counter starts
+running).  A capture from that point on is in `build/ref_p2`:
+
+```
+python3 tools/refcapture.py --start 55 --seconds 20 --interval 2 --out build/ref_p2
+```
+
+Ten frames, 55..74 s, and they are no longer part 1's scroller: the picture
+fills the screen and each frame holds **70..107 distinct colours, all on the
+6 bit DAC lattice**.  A single 64 entry palette can only produce 64 of those,
+so the DAC is being rewritten *inside* the visible frame — part 2 cannot be
+transcoded with part 1's "one palette per counter" model; it needs the palette
+per line (or the per line write pattern that produces it).
+
+The emulator path does not just work on part 2 either: `tools/vmsnap.py` keys
+on the part's ISR at `<segment>:0x20` (block offset `0x120`), and blocks 2 and 3
+have a different layout — no retrace wait at `0x110`, no ISR at `0x120`, no
+entry at `0xcd5`; those offsets hold ramp tables (`f900`, `f901`, `f902` …).
+A snapshot at 62 s therefore reports "no running part found".  The next step is
+to locate part 2's entry point and timer handler per block instead of reusing
+part 1's offsets, then snapshot and inspect its video writes.
+
+## How the page plays the demo
+
+`web/` runs the demo in order: `part1.js` draws until `counterAt(t)` reaches
+`0x1500`, then `main.js` hands over to the reconstruction of parts 2..7.  The
+handover is a time comparison, so it is testable: `?t=N` pins the picture at N
+seconds and stops (`?t=5` is counter 690 of part 1, `?t=45` is the
+reconstruction), and a canvas grab at `?t=5` is byte identical to the node
+render for counter 690.  `?vm=1` plays part 1 alone, `?scene=N` pins one
+reconstructed scene and skips part 1.

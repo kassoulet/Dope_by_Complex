@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>dope part 1 -- browser check</title>
+<style>
+  body { background: #000; color: #6c6; font: 12px/1.6 "Courier New", monospace; padding: 12px; }
+  canvas { image-rendering: pixelated; border: 1px solid #141; }
+</style>
+</head>
+<body>
+<canvas id="c" width="320" height="200"></canvas>
+<pre id="out">running...</pre>
+<script type="module">
+/*
+ * dope/part1test.html -- the part 1 path as the browser runs it: fetch
+ * DOPE.EXE, decompress block 1 in the page, write the frame for counter 774 to
+ * a canvas, read the canvas back and compare it with what the transcode says it
+ * should be.  The digest it prints is the same one tests/test_part1.mjs pins,
+ * so a page that renders correctly and a node run that renders correctly can be
+ * compared without images.
+ *
+ *   python3 -m http.server 8000
+ *   google-chrome --headless=new --dump-dom http://localhost:8000/web/part1test.html
+ */
+import { Part1, W, H } from "./js/part1.js";
+
+const out = document.getElementById("out");
+const COUNTER = 774;
+
+function fnv1a(data) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < data.length; i++) {
+    h ^= data[i];
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return (h >>> 0).toString(16);
+}
+
+try {
+  const res = await fetch("../DOPE.EXE");
+  if (!res.ok) throw new Error(`DOPE.EXE: ${res.status}`);
+  const exe = new Uint8Array(await res.arrayBuffer());
+  const part = Part1.fromExecutable(exe);
+
+  const frame = part.frame(COUNTER);
+  const img = new ImageData(W, H);
+  part.rgba(COUNTER, img.data);
+  const ctx = document.getElementById("c").getContext("2d");
+  ctx.putImageData(img, 0, 0);
+
+  const back = ctx.getImageData(0, 0, W, H).data;
+  const pal = part.palette(COUNTER);
+  let bad = 0;
+  for (let i = 0; i < W * H; i++) {
+    if (back[i * 4 + 3] !== 255) bad++;
+    for (let c = 0; c < 3; c++) {
+      const v = pal[frame[i] * 3 + c];
+      if (back[i * 4 + c] !== ((v << 2) | (v >> 4))) bad++;
+    }
+  }
+
+  const lines = [
+    `DOPE.EXE          ${exe.length} bytes`,
+    `card memory       ${part.vram.length} pixels`,
+    `counter           ${COUNTER}`,
+    `line start        ${part.lineStart(COUNTER)}`,
+    `pan               ${part.panPixels(COUNTER)}`,
+    `frame digest      ${fnv1a(frame)}`,
+    `canvas mismatches ${bad}`,
+    bad ? "FAIL" : "OK",
+  ];
+  out.textContent = lines.join("\n");
+  document.title = bad ? `FAIL ${bad}` : `ok frame=${fnv1a(frame)}`;
+} catch (err) {
+  out.textContent = `error: ${err.message}`;
+  document.title = `ERR ${err.message}`;
+}
+</script>
+</body>
+</html>

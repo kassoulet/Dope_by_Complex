@@ -1,0 +1,29 @@
+:root { --bg:#0b0a12; --fg:#d9d6e8; --dim:#8a86a3; --acc:#9f8cff; --code:#14121f; --line:#2a2640; }
+@media (prefers-color-scheme: light) {
+  :root { --bg:#faf9ff; --fg:#1d1a2b; --dim:#615c7c; --acc:#5b3fd6; --code:#efedfa; --line:#d8d4ee; }
+}
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.6 system-ui, sans-serif; }
+main { max-width: 860px; margin: 0 auto; padding: 0 16px 64px; }
+nav { max-width:860px; margin:0 auto; padding:14px 16px; display:flex; gap:18px; flex-wrap:wrap; }
+a { color:var(--acc); }
+h1 { font-size:2rem; margin:.4em 0 .1em; } h2 { margin-top:2.2em; border-bottom:1px solid var(--line); padding-bottom:.2em; }
+h3 { margin-top:1.8em; }
+.lead { color:var(--dim); font-size:1.1rem; }
+code, pre { font:13px/1.45 ui-monospace, "Courier New", monospace; }
+code { background:var(--code); padding:1px 4px; border-radius:3px; }
+pre { background:var(--code); border:1px solid var(--line); border-radius:6px; padding:12px; overflow-x:auto; }
+pre code { background:none; padding:0; }
+.cm { color:var(--dim); }
+table { border-collapse:collapse; width:100%; font-size:14px; } td, th { border-bottom:1px solid var(--line); padding:5px 8px; text-align:left; }
+figure { margin:1em 0; } figure img { image-rendering:pixelated; width:100%; max-width:320px; aspect-ratio:4/3; display:block; background:#000; }
+.pair { display:flex; gap:16px; flex-wrap:wrap; } .pair figure { flex:1 1 240px; } figcaption { color:var(--dim); font-size:13px; }
+.note { border-left:3px solid var(--acc); padding:2px 12px; color:var(--dim); }
+/* player */
+#player { background:#000; border-radius:8px; padding:8px; margin-top:12px; }
+#screen { display:block; width:min(100%, calc((100vh - 170px) * 4 / 3)); margin:0 auto; aspect-ratio:4/3; image-rendering:pixelated; cursor:pointer; background:#000; }
+#bar { display:flex; gap:10px; align-items:center; padding-top:8px; color:#cfc; font:13px ui-monospace, monospace; }
+#bar button { font:inherit; background:#1c1a2b; color:#e5e0ff; border:1px solid #3a3560; border-radius:4px; padding:4px 10px; cursor:pointer; }
+#bar button:disabled { opacity:.5; cursor:default; }
+#seek { flex:1; min-width:80px; accent-color:#9f8cff; }
+#status { color:#9c9; font:12px ui-monospace, monospace; padding-top:4px; min-height:1.5em; }

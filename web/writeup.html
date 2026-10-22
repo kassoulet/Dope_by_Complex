@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DOPE asm write-up</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav><a href="index.html"><b>DOPE, reversed</b></a><a href="index.html#process">the process</a><a href="writeup.html">asm write-up</a></nav>
+<main>
+<h1>The best bits of DOPE's assembly</h1>
+<p class="lead">Eight snippets, disassembled with <code>ndisasm -b16</code> from the unpacked blocks. Addresses are offsets inside the unpacked block. The listings are the real bytes; the explanations are my reading of them, and I say where that is a guess.</p>
+<p class="note">Part 1 is block 1; the texture loop and projection are in block 2. Block 2's own banner says it all: <i>"DON'T TELL ME IT'S NOT OPTIMIZED OR 'REAL' BECAUSE I KNOW THAT ALREADY! WHY OPTIMIZE ANYTHING FOR PENTIUM 100 MHZ?"</i> It is optimised anyway.</p>
+
+<h2>1. Wait for the retrace edge, not for "a" retrace</h2>
+<pre><code>0110  mov dx,0x3da
+0113  in  al,dx
+0114  test al,8
+0116  jnz 0x113        <span class="cm">; first: leave any retrace already in progress</span>
+0118  in  al,dx
+0119  test al,8
+011B  jz  0x118        <span class="cm">; then: wait for the next one to begin</span>
+011D  ret</code></pre>
+<p>Waiting only for "bit 3 set" returns immediately if you are halfway through a retrace, and the palette write that follows then lands in the visible picture. Two loops, nine instructions, and every caller starts at the leading edge. It is called around mode switches and during timer calibration.</p>
+
+<h2>2. A timer interrupt that keeps the DOS clock right using the carry flag</h2>
+<pre><code>015A  call 0xc24            <span class="cm">; rewrite the palette</span>
+015D  mov ax,[cs:4]         <span class="cm">; PIT reload value we programmed</span>
+0161  add [cs:6],ax         <span class="cm">; 16-bit accumulator of PIT counts  -> CF</span>
+0166  popad
+0168  pop gs
+016A  pop fs
+016C  pop es
+016D  pop ds                <span class="cm">; none of these touch the flags</span>
+016E  jc  0x171
+0170  iret
+0171  jmp far [cs:0]        <span class="cm">; chain to the original INT 8 (BIOS clock)</span></code></pre>
+<p>The demo drives the PIT at its own rate (about once per video frame, see 3), so the BIOS tick that updates the DOS time would run far too often. Instead of counting, the handler adds the reload value into a 16-bit accumulator. The accumulator wraps once per 65,536 PIT counts, which is exactly the BIOS's native 18.2 Hz period, and when it wraps the carry flag is set. The handler then <b>pops a dozen registers and still branches on that carry</b>, because <code>pop</code> and <code>popad</code> don't modify flags. One <code>add</code> is the whole bookkeeping, one <code>jc</code> decides whether to chain. The DOS clock stays correct even though the interrupt rate was changed.</p>
+
+<h2>3. Calibrating the timer against the monitor, with one multiply</h2>
+<pre><code>01D6  call 0x110            <span class="cm">; sync to retrace</span>
+01D9  mov al,0x36 / out 0x43,al ; count 0 = 65536 free-running
+...   xor al,al / out 0x40,al / out 0x40,al
+01E7  call 0x110            <span class="cm">; one whole frame later</span>
+01EF  xor eax,eax / out 0x43,al      <span class="cm">; latch counter</span>
+01F6  in al,0x40 / mov ah,al / in al,0x40 / xchg al,ah
+0200  neg ax                <span class="cm">; down-counter: elapsed = -count</span>
+0206  imul eax,eax,0x3de
+020D  shr eax,11            <span class="cm">; x 990/2048, about 0.483</span>
+0211  mov [cs:4],ax</code></pre>
+<p>The code measures how many PIT counts one vertical retrace period takes on <i>this</i> monitor (about 17,000 at 70 Hz), then scales it by 990/2048 with a multiply and a shift: no division, and a power-of-two divisor. That number becomes the one-shot reload (mode <code>0x30</code>) that the handler in snippet 2 re-arms after waiting for retrace. My reading: the interrupt fires a little under half a frame after retrace begins, so the scroll registers are written at a fixed point in the frame regardless of monitor refresh rate. That's inference from the constants; the measured rate on the running demo is 69 interrupts/s.</p>
+
+<h2>4. A 64-entry gradient from a fixed-point accumulator that saturates by skipping</h2>
+<pre><code>0C00  test dx,dx
+0C02  jns 0xc06
+0C04  xor dx,dx              <span class="cm">; negative step -> 0</span>
+0C06  shr dx,4
+0C09  cmp dx,0x100
+0C0D  jc  0xc12
+0C0F  mov dx,0x100           <span class="cm">; clamp the step</span>
+0C12  mov cx,0x40
+0C15  mov [cs:bx],ah         <span class="cm">; store the integer part, free: AH is bits 8..15</span>
+0C18  inc bx
+0C19  cmp ax,0x3f00
+0C1C  ja  0xc20              <span class="cm">; already at 63.x: stop adding</span>
+0C1E  add ax,dx
+0C20  dec cx
+0C21  jnz 0xc15</code></pre>
+<p>AX is an 8.8 fixed-point number, so <code>ah</code> <i>is</i> the integer part, no shift needed. The saturation at 63 (the DAC is 6 bits) is done by <b>not adding</b> when AX is already above 0x3f00, instead of clamping the result afterwards. The step comes from the demo's counter, so the ramp's slope, and with it the palette crossfade in part 1, moves with time with no per-frame float code at all.</p>
+
+<h2>5. Palette crossfade: 64 colours are 192 bytes, treat them as 192 bytes</h2>
+<pre><code>0C2A  mov cx,0xc0
+0C2D  mov dx,0x3c8 / xor al,al / out dx,al / inc dx   <span class="cm">; DAC write index 0, then port 3C9</span>
+0C34  mov bl,[cs:bp+0x4f0]     <span class="cm">; index into ramp A</span>
+0C39  mov al,[cs:bx+0x16c]
+0C3E  mov bl,[cs:bp+0x7f8]     <span class="cm">; index into ramp B</span>
+0C43  add al,[cs:bx+0x1ac]
+0C48  cmp al,0x3f
+0C4A  jc  0xc4e
+0C4C  mov al,0x3f              <span class="cm">; saturate</span>
+0C4E  mov [cs:bp+0x1ec],al     <span class="cm">; shadow copy</span>
+0C53  inc bp
+0C54  out dx,al                <span class="cm">; DAC auto-increments R,G,B,R,G,B...</span>
+0C55  dec cx
+0C56  jnz 0xc34</code></pre>
+<p>There is no "colour" structure here. The loop runs 0xC0 = 192 times and streams one byte per iteration into port 0x3C9; the VGA DAC auto-increments through R, G, B and then to the next entry, so no code separates the components. Each byte is a saturating sum of two ramp entries chosen by two precomputed index tables (one for each of the two ramps from snippet 4). Changing the two ramps' slopes crossfades two whole palettes while the picture itself is never touched: the effect costs 192 table lookups per frame. In the JS port this is <code>clamp(rampA[tblA[i]] + rampB[tblB[i]], 63)</code> and it matches the original frames.</p>
+
+<h2>6. Unpacking a picture into planar VRAM, four pixels per store</h2>
+<pre><code>0C5C  push ds
+0C5D  mov cx,0xc3            <span class="cm">; 195 rows</span>
+0C60  push cx
+0C61  mov cx,0x40            <span class="cm">; 64 groups per row</span>
+0C64  mov bl,[si+8]
+0C67  mov bh,[si+0xc]
+0C6A  shl ebx,16
+0C6E  mov bl,[si]
+0C70  mov bh,[si+4]
+0C73  mov [es:di],ebx        <span class="cm">; ONE 32-bit store</span>
+0C77  mov bx,ds
+0C79  inc bx
+0C7A  mov ds,bx              <span class="cm">; source += 16 bytes, via the segment register</span>
+0C7C  add di,4
+0C7F  dec cx
+0C80  jnz 0xc64</code></pre>
+<p>Two tricks. First, the VGA is in an unchained planar mode, so pixel <i>x</i> lives in plane <i>x mod 4</i>. For one plane the pixels sit in the source at stride 4: <code>[si]</code>, <code>[si+4]</code>, <code>[si+8]</code>, <code>[si+0xc]</code>. Gathering those four bytes into <code>ebx</code> with the 16-bit halves trick (<code>shl ebx,16</code> to make room) lets a single <code>mov [es:di],ebx</code> write four consecutive plane bytes; the map mask register selects the plane, and the whole picture is four passes. Second, the source pointer advance is <code>inc ds</code>, a 16-byte step, instead of <code>add si,16</code>: the 213 KB picture strip is bigger than a 64 KB segment, and moving the segment instead of the offset means the offset never overflows. This is also why the picture has to be placed where the loader mapped it.</p>
+<p>I only understood this snippet after the first port was wrong by a units error: the card's plane bytes cover four pixels each, and the CRTC start/offset registers count plane bytes. Once that was right the frames matched exactly.</p>
+
+<h2>7. The scroll: two register writes from one counter</h2>
+<pre><code>0C8D  mov bx,[cs:0x16a]       <span class="cm">; the shared counter</span>
+0C92  shr bx,4                <span class="cm">; 16 counts = one start-address unit</span>
+0C95  mov dx,0x3d4
+0C98  mov al,0xc / mov ah,bh / out dx,ax     <span class="cm">; CRTC start high</span>
+0C9D  inc al / mov ah,bl / out dx,ax         <span class="cm">; CRTC start low</span>
+...
+0CAF  mov ax,[cs:0x16a]
+0CB3  shr ax,2 / and al,3 / add al,al        <span class="cm">; pixel pan 0,2,4,6 (bits 1..2)</span>
+0CBA  out dx,al               <span class="cm">; attribute controller 0x33, horizontal pan</span></code></pre>
+<p>Each <code>out dx,ax</code> writes the index byte and the data byte with one instruction (the CRTC and sequencer are 16-bit friendly: index at port N, data at N+1). The scroll is the same counter read twice: its high bits move the CRTC start address in coarse steps, its low bits go to the attribute controller's pixel panning register for the fine steps, so the picture appears to scroll one pixel at a time through a register that can only move four. No pixel is ever copied; the whole "animation" of part 1 is a window moving over an unpacked image, which is why the port can draw it as a crop.</p>
+
+<h2>8. Texture mapper inner loop: 14 instructions per pixel, self-modifying</h2>
+<pre><code>27C0  mov edx,[cs:0x2650]     <span class="cm">; setup: V accumulator</span>
+27C6  <span class="cm">; --- loop body, per pixel ---</span>
+      mov bl,ch
+      shld ebx,ecx,9
+      and  bx,0x7f7f          <span class="cm">; both coordinates wrapped to 128 with one AND</span>
+      inc  di
+      mov  al,[fs:bx]         <span class="cm">; lookup 1 (a map in segment FS)</span>
+      shld ebx,edx,8
+      mov  si,[cs:eax*2+0]    <span class="cm">; table of row offsets, 32-bit index in 16-bit code</span>
+      mov  bh,dh
+      add  ecx,0              <span class="cm">; <b>immediate is patched at runtime</b></span>
+      mov  bl,[bx+si]         <span class="cm">; lookup 2 (segment DS), shaded by SI</span>
+      add  edx,0              <span class="cm">; patched too</span>
+      mov  [es:di-1],bl
+      inc  bp
+      jnz  loop               <span class="cm">; BP counts up from negative to 0</span></code></pre>
+<p>(Block 2, loop body 0x27C6..0x27FA, preceded by its setup.) Things worth noticing:</p>
+<ul>
+<li><b>Self-modifying code.</b> <code>add ecx,0</code> and <code>add edx,0</code> encode a 32-bit immediate of zero in the file. These are placeholders: the per-polygon texture gradients are written into the instruction stream before the span loop runs, so the deltas live in the instruction instead of occupying registers. On a 486/Pentium that frees two registers in a loop that wants all of them.</li>
+<li><b>No compare.</b> The span length is <code>sub bp,dx</code> (negative); <code>inc bp / jnz</code> counts it up to zero, and the <code>jns</code> before the loop skips empty spans.</li>
+<li><b><code>shld</code> as a bit packer.</b> It shifts bits from one register into another, so the two fixed-point coordinates are assembled into one index register with no <code>shl/or</code> pairs; <code>and bx,0x7f7f</code> then wraps both halves at once.</li>
+<li><b>A 32-bit address in a 16-bit segment:</b> <code>mov si,[cs:eax*2+0]</code> carries the <code>0x67</code> prefix. The "+0" displacement is another patched address.</li>
+<li><b>Segments as free pointer registers:</b> <code>fs</code>, <code>ds</code>, <code>es</code> and <code>cs</code> each address a different table or buffer, so the loop needs no base-register arithmetic.</li>
+</ul>
+<p class="note">I read the two lookups as a map that selects a shading row (SI) and a texture fetch through it, which fits the shaded environment-map look of the captures. I haven't traced the data to confirm what the two segments hold.</p>
+
+<h2>Bonus: projection with the rounding folded into the centre offset</h2>
+<pre><code>1E04  sar eax,3
+1E08  adc ax,0xa0           <span class="cm">; x = X*f/z / 8 + 160, rounded</span>
+...
+1E1C  lea eax,[eax+eax*2]   <span class="cm">; y * 3</span>
+1E21  sar eax,5
+1E25  adc ax,0x64           <span class="cm">; y = Y*f/z * 3/32 + 100, rounded</span></code></pre>
+<p><code>sar</code> pushes the last shifted-out bit into the carry flag; <code>adc</code> then adds the screen-centre constant <i>and</i> that bit in one instruction. That is round-to-nearest for free. The y line multiplies by 3 with <code>lea</code> and shifts by 5, so y is scaled by 3/32 against x's 1/8 = 4/32: <b>a 4:3 ratio between horizontal and vertical scale</b> built into the projection. Whether that was a deliberate correction for mode 13h's non-square pixels (a pure correction would be 5:6) or a matter of taste I can't say from the code, but it is one more reason to display this demo at 4:3.</p>
+
+<p><a href="index.html">← back to the player</a></p>
+</main>
+</body>
+</html>
