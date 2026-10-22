@@ -179,10 +179,12 @@ Reconstructed: the geometry and the effects of parts 2..7.  `docs/ANALYSIS.md`
 records what the original code does; `docs/RUNTIME.md` records what was
 measured on the running demo.  Part 2's 3D layer is captured but not ported: it is a
 software 3D engine (transform, projection, texture mapped spans) whose data
-addresses are segment constants the loader relocates, and whose span loop does
-not terminate in the verification rig yet.  What *is* exact about the part is
-the screen machinery around that engine (`web/js/part2.js`, checked by
-`tests/test_part2.mjs` against `build/ref_p2` and the frozen part's memory):
+addresses are segment constants the loader relocates, and one frame of it costs
+10^8..10^9 instructions in the verification rig -- so the part can be run from
+its entry but not out to the counters the reference capture covers.  What *is*
+exact about the part is the screen machinery around that engine
+(`web/js/part2.js`, checked by `tests/test_part2.mjs` against `build/ref_p2`
+and the frozen part's memory):
 
 * all 256 DAC entries, loaded from the block and rewritten every timer tick
   through a 64 entry fade ramp -- which explains the 70..107 colours per frame

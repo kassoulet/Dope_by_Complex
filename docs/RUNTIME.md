@@ -450,12 +450,12 @@ block `0x386c`) the rig runs the part for real:
   / `mov [es:di-1],bl` body), which stores into the 3D buffer at `es = 0x54a2`
   (`0x54bb5`..`0x8ffe8`), i.e. it really is texture-mapping polygons.
 
-So the engine is not the blocker any more; the span loop is.  It does not
-terminate: `26fa` is `inc bp / jnz 26c6` and the count comes from `sub bp,dx`,
-while the outer scanline loop is `dec word [cs:0x2654]` -- and `2660` fills that
-counter with a store that has **no `cs:` prefix** (`mov [0x2654],dx`, i.e.
-`ds:`), then sets `ds` from `cs:0x2e8c` afterwards, so it assumes the caller
-runs with `ds == cs`.  Two experiments, both done, narrowed it:
+So the engine is not the blocker any more; the cost of the span loop is.
+`26fa` is `inc bp / jnz 26c6` and the count comes from `sub bp,dx`, while the
+outer scanline loop is `dec word [cs:0x2654]` -- and `2660` fills that counter
+with a store that has **no `cs:` prefix** (`mov [0x2654],dx`, i.e. `ds:`), then
+sets `ds` from `cs:0x2e8c` afterwards, so it assumes the caller runs with
+`ds == cs`.  Two experiments, both done, narrowed it:
 
 * forcing `ds = cs` on every entry to `2660` makes spans *return* (21 entries,
   6 returns, and the outer counter now works) -- so that is a real convention,
@@ -470,28 +470,59 @@ runs with `ds == cs`.  Two experiments, both done, narrowed it:
   DAC), but it is not any reference frame -- the booted part is at its own
   frame 1, not at the captured state -- and some span entries still arrive with
   a leaked `ds` (a data segment, not `cs`), so this is a working renderer, not
-  yet a faithful run.  At 348 M instructions per frame it is also three orders
-  of magnitude too slow to serve as a measuring instrument for a whole part.
+  yet a faithful run.
 
-The projected vertex arrays next door are plausible (`0x332f0` and `0x33d18`
-hold small screen coordinates like `0x14, 0x10, 0x1c`), so the transform is
-running; the polygon being fed to the span filler is degenerate.  That is
-consistent with a part that cannot be restarted from its own entry: the object
-records live in `cs:0x1810` and the geometry comes from the loader's level map
-(the six segment words of block 0 above), which a boot from block 2 alone does
-not reproduce.  Reproducing that map is the next step, not another guess at the
-span code.
+### The engine is not degenerate, and a snapshot cannot reproduce its own screen
 
-Until that is answered the rig can boot and run part 2 but produces no frames,
-so there is still no honest framediff against `build/ref_p2`; the palette test
-above is the part-2 result that *is* measured.  The live screenshot is what the
-real screen looks like at counter 127, and the framebuffer is not in the
-`/proc/<pid>/mem` dump (DOSBox keeps `A0000` there as `0xff`, as does ours after
-a planar clear), so the screenshot -- not the dump -- is the reference for the
-picture side.
+The note above guessed that the geometry fed to the span filler is "degenerate".
+Measured afterwards, straight from the frozen image, it is not -- the polygons
+are real and the picture they are asked to draw is a full screen of texture.
+What is wrong is the *state*, and the frozen memory says exactly why.
 
-`tests/test_vga.mjs` pins the boot rule now (entry from the snapshot, `0xbd5`
-only as the fallback), so this cannot silently come back.
+* **The polygon list is full.** `cs:0x2ccd` (`+0xf7b` -> linear `0x3c480`) holds
+  **300 records of 4 bytes**, first words `0x92, 0x128, 0x8d, 0x123, 0x8c,
+  0x122, 0x93, 0x129, 0x8a, 0x120, 0x21, 0xb7`, indices in `0..0x12b`,
+  terminated by `0xffff` at `0x3c930`.  The three arrays it indexes
+  (`gs:0x6720`, `gs:0x7148`, `gs:0x7b70`) hold screen coordinates (`0x14,
+  0x10, 0x20, 0x18, 0x24`), so they are the projected vertices, not garbage.
+* **The object list is empty.** `cs:0x1810 = 0xffff` at the freeze, and
+  `cs:0x1904 = 2` (band 2), `cs:0x1955 = 0xffff` (the horizontal text scroll is
+  off), `cs:0x1947 = 0`, `cs:0x1928 = 127`.  With no objects, `354a` (the
+  animation that runs the transform `1c60` and the projection `1d60`) has
+  nothing to animate: the projected arrays are left over from an **earlier**
+  scene, which is why one edge of the first polygon projects to
+  `x = 0xba97 = -17769` -- and why `3310` then spends its time filling a span
+  that starts 17,769 pixels off the left of the screen.  The setup at `2881`
+  only rejects `left > 0xc9` and `right < 1`; it has no lower bound on `left`,
+  so that stale vertex is accepted.
+* **The picture on screen is older than the memory.** Driven from the frozen
+  state, `3310` over that list enters 404..510 spans and has not returned after
+  **400 M instructions** (it sits in `26fa`); started with the picture buffer
+  zeroed it fills `64,064` of its `64,064` bytes, i.e. one covering quad.  So
+  the frame at counter 127 was drawn at some earlier moment and simply stayed
+  on the screen.  The buffers that produced it are consumed: the band strip
+  (`0x54a2`, offsets `0x140..0xfa40`) is **all zero** at the freeze -- `36f9`
+  clears it after every frame -- and the compose overwrites its own input
+  (`0x6492`) with the finished picture.
+
+So there is no contradiction left to chase in the span code: a single snapshot
+cannot rebuild its own screen, because the two buffers the last frame consumed
+are gone by the time the snapshot is taken.  Matching `build/ref_p2` needs the
+part **run from its entry to the captured counters**, and one frame of this
+engine costs `10^8..10^9` instructions in the rig (6..60 s), while the capture
+spans `39..57 s` of part 2.  That is the honest blocker, and it is a cost
+problem, not an unknown.
+
+Until it is paid there is no framediff against `build/ref_p2`; the palette,
+shade table, bands and compose tests above are the part-2 results that *are*
+measured.  The live screenshot is what the real screen looks like at counter
+127, and the framebuffer is not in the `/proc/<pid>/mem` dump (DOSBox keeps
+`A0000` there as `0xff`, as does ours after a planar clear), so the screenshot
+-- not the dump -- is the reference for the picture side.
+
+`tests/test_vga.mjs` pins the boot rule (entry from the snapshot, `0xbd5` only
+as the fallback), and `tests/test_part2.mjs` pins the frozen state quoted
+above, so none of it can silently drift.
 
 ## How the page plays the demo
 

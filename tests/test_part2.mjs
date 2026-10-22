@@ -271,6 +271,62 @@ if (!existsSync(snapBase + '.mem')) {
   ok('the screen buffer is shown one row down (the scroll)', shifted > unshifted,
     `one row down ${shifted} rows, none ${unshifted}`);
   ok('most of the frozen screen is reproduced exactly', shifted >= 80, `${shifted} of 199 rows`);
+
+  /* ------------------------- what the part is doing at the instant of the freeze
+   *
+   * These pin the state the notes in docs/RUNTIME.md quote, so a re-captured
+   * snapshot shows up instead of quietly changing the story.  All of it is read
+   * out of the image; the counters are the part's own.
+   */
+  const csBase = meta.part_segment << 4; // cs: offsets are not relocated
+  const word = (off) => mem[csBase + off] | (mem[csBase + off + 1] << 8);
+  const dword = (off) => (mem[csBase + off] | (mem[csBase + off + 1] << 8) |
+    (mem[csBase + off + 2] << 16) | (mem[csBase + off + 3] << 24)) >>> 0;
+  eq('[cs:0x1904] is band 2', word(0x1904), 2);
+  eq('[cs:0x1955] is -1: the horizontal text scroll is off', word(0x1955), 0xffff);
+  eq('[cs:0x1947] is 0 (no picture copied back from 0xec3)', word(0x1947), 0);
+  eq('[cs:0x1810] is 0xffff: no object is being animated', word(0x1810), 0xffff);
+  eq('the frame counter is the one the snapshot records', dword(meta.counter_offset), meta.counter);
+
+  // The polygon list is full even though the object list is empty: 300 four
+  // byte records at cs:0x2ccd, first words 0x92, 0x128, 0x8d, ... and 0xffff
+  // after the last one.  It indexes the projected vertex arrays, which hold
+  // screen coordinates -- so "the draw loop walks an empty polygon list" is not
+  // what is happening here.
+  const gsBase = at(0x2ccd, 0);
+  const first = [];
+  const index = [];
+  let records = 0;
+  while (records < 4096) {
+    const w = mem[gsBase + records * 4] | (mem[gsBase + records * 4 + 1] << 8);
+    if (w === 0xffff) break;
+    if (records < 6) first.push(w);
+    index.push(w);
+    records++;
+  }
+  eq('the polygon list holds 300 records, terminated by 0xffff', records, 300);
+  eq('its first records start 0x92, 0x128, 0x8d, 0x123, 0x8c, 0x122',
+    first.join(','), '146,296,141,291,140,290');
+  ok('every index stays inside the 0x12c entry vertex arrays', Math.max(...index) <= 0x12b,
+    `max ${Math.max(...index).toString(16)}`);
+  for (const off of [0x6720, 0x7148, 0x7b70]) {
+    let worst = 0;
+    for (let i = 0; i < 64; i++) {
+      worst = Math.max(worst, mem[gsBase + off + i * 2] | (mem[gsBase + off + i * 2 + 1] << 8));
+    }
+    ok(`the vertex array at gs:0x${off.toString(16)} holds screen coordinates`, worst < 0x200,
+      `largest ${worst.toString(16)}`);
+  }
+
+  // The two buffers the last frame consumed are gone: the band strip was
+  // cleared after the frame (0x36f9) and the compose overwrote its own input
+  // with the finished picture.  That is why a snapshot cannot rebuild its own
+  // screen, and why the 3D layer cannot be checked against a frozen state.
+  const strip = at(0x4527, 0);
+  let stripNonZero = 0;
+  for (let i = 0; i < 0xfa40; i++) if (mem[strip + i]) stripNonZero++;
+  eq('the band strip (0x4527, i.e. 0x54a2 once patched) is cleared at the freeze',
+    stripNonZero, 0);
 }
 
 /* ------------------ the compose loop, run by the part's own instructions */
