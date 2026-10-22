@@ -374,6 +374,29 @@ the rule the loader uses: **a stored segment constant is patched by adding
 block offset 0 gets mapped, which is exactly why the addend is one paragraph
 short.  That is the same `0xf7b` part 1's `push 0xe4` shows.
 
+**What the snapshot says the screens actually are.**  At counter 127 (58 s into
+the launch) the snapshot has `[cs:0x1904] = 2`, an empty object list (`[cs:0x1810]
+= 0xffff`), and yet a full picture on screen.  So part 2's early screens are not
+3D at all: `0x370c` waits for the frame hook to set `cs:0x1924`, then copies a
+`0x2800` byte band -- 32 scanlines -- from segment `0x451`, offset
+`0xdb0a + n * 0x2800` with `n = [cs:0x1904]`, into a work buffer at
+`0x4527:0x6e00`; a `0x7d00` byte loop then combines a mask byte with the
+128x128 map at `0x3527` (`mov bh,[si] / mov bl,[es:si] / mov dl,[fs:bx] /
+mov [si],dx`), and a `rep movsd` from `0x5517` to `A0000` puts the result on
+screen.  (Which of the two buffers each step reads is the next thing to pin
+down; the addresses above are what the code says.)  The credit text is *in
+those bands*: it is pre-shaded picture data, which is why there are no strings
+in block 2.
+
+That also explains the geometry buffers: `0x2ccd0` (polygon list), `0x333f0`
+(projected x), `0x33e18`, `0x34840` and the 128x128 map at `0x35270` are **all
+zero in the block file** and full of values in the running part.  They are
+built at run time by the part's own setup, so no file-only run can draw a frame
+until that generator is transcribed -- which is why the rig above lands on an
+empty list.  The bands, on the other hand, *are* in the file (`0x4510:0xdb0a`),
+so the background-only screens are the transcodeable half of part 2, and the 3D
+engine is the other half.
+
 **A first attempt, and where it stops.**  Loading block 2 at a segment,
 relocating every `push imm16` that is followed by `pop ds/es/fs/gs` plus the
 two tables at `cs:0x400`/`cs:0x408` by adding that segment (the loader's rule as
