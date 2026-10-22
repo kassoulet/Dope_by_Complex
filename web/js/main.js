@@ -52,6 +52,7 @@ let wallMark = 0;
 let part = null;
 let partImage = null;
 let playing = null;
+let lastLevel = 0; // peak of the last audio block, for the browser check
 
 /* ------------------------------------------------------------------ aspect */
 
@@ -126,10 +127,16 @@ function startAudio() {
   node.onaudioprocess = (e) => {
     const outL = e.outputBuffer.getChannelData(0);
     const outR = e.outputBuffer.getChannelData(1);
-    if (paused) { outL.fill(0); outR.fill(0); return; }
+    if (paused) { outL.fill(0); outR.fill(0); lastLevel = 0; return; }
     tickLeft = renderBlock(mod, left, right, blockSize, tickLeft, sr);
     outL.set(left);
     outR.set(right);
+    let peak = 0;
+    for (let i = 0; i < blockSize; i++) {
+      const a = left[i] < 0 ? -left[i] : left[i];
+      if (a > peak) peak = a;
+    }
+    lastLevel = peak;
     framesDone += blockSize;
     ctxMark = audio.currentTime;
   };
@@ -210,6 +217,45 @@ document.addEventListener("keydown", (e) => {
     Home: () => seekTo(0), j: () => seekTo(now() - 10), l: () => seekTo(now() + 10), k: () => setPaused(!paused) }[e.key];
   if (key) { e.preventDefault(); key(); }
 });
+
+/* --------------------------------------------------------------- test hook */
+
+// tests/test_browser.mjs drives the page through this object: it reads the
+// song clock, the visible picture and the audio level, and moves the transport
+// the way the buttons and keys do.  The demo itself never looks at it.
+function canvasDigest() {
+  const d = pctx.getImageData(0, 0, W, H).data;
+  let h = 0x811c9dc5;
+  for (let i = 0; i < d.length; i++) {
+    h ^= d[i];
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return (h >>> 0).toString(16).padStart(8, "0");
+}
+
+function canvasInk() { // non-black pixels, to tell a picture from a blank card
+  const d = pctx.getImageData(0, 0, W, H).data;
+  let n = 0;
+  for (let i = 0; i < d.length; i += 4) if (d[i] || d[i + 1] || d[i + 2]) n++;
+  return n;
+}
+
+window.__dope = {
+  get started() { return started; },
+  get paused() { return paused; },
+  get t() { return now(); },
+  get duration() { return duration; },
+  get status() { return status.textContent; },
+  get audioState() { return audio ? audio.state : null; },
+  get audioLevel() { return lastLevel; },
+  get frames() { return framesDone; },
+  get aspect() { return getComputedStyle(canvas).aspectRatio; },
+  get digest() { return canvasDigest(); },
+  get ink() { return canvasInk(); },
+  play: () => (started ? setPaused(false) : run(start)),
+  pause: () => setPaused(true),
+  seek: (seconds) => seekTo(seconds),
+};
 
 // draw an attract frame straight away so the page is never blank
 renderLook(pctx, 40);
