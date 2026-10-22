@@ -392,24 +392,34 @@ entries written three times (`[bx+0x80]`, `[bx-0x8000]`, `[bx-0x7f80]`), so
 every composed pixel has bit 7 set and uses the top half of the DAC.  Both
 facts are *checked*, not inferred: rebuilding that table from the block's own
 instructions reproduces the running part's 24,576 bytes exactly (0 differ), and
-the four credit bands (`0xc01a`, `0xe81a`, `0x1101a`, `0x1381a` in block 2) sit
-inside the part image at `part_linear + 0xbf1a`, contiguous and byte-identical
-to the frozen part's memory.
+the four credit bands (`0x1201a`, `0x1481a`, `0x1701a`, `0x1981a` in block 2)
+sit inside the part image at `part_linear + 0x11f1a`, contiguous and
+byte-identical to the frozen part's memory.
 
 That also settles what the early screens are: at counter 127 `[cs:0x1904] = 2`
 and the object list is empty, so the picture is a band pushed through the shade
 table with a zero span buffer.  The credit text is *in those bands*: it is
 pre-shaded picture data, which is why there are no strings in block 2.
 
-Two addresses had to be measured rather than assumed.  The band segment the
-code uses (`push 0x451`) is patched by `+0x97b` to `0xdcc`, not by the `+0xf7b`
-the other constants get, and `0xdcc0 + 0xdb0a = 0x1b7ca` is exactly where the
-bands sit in the part image.  And the screen buffer the blit reads is `0x5517`
-patched to `0x6492`: read that buffer back through the base palette and it
+Every one of those addresses can be read straight off the frozen part, because
+the loader patched the immediates in place: `push 0x4527` became `push 0x54a2`,
+`0x5517` became `0x6492`, `0x3527` became `0x44a2`, and the band segment
+`push 0x451` became `push 0x13cc` -- so the band the code reads is
+`0x13cc0 + 0xdb0a = 0x217ca`, which is block `0x1201a`, not the `0xc01a` an
+earlier reading of the band table guessed.  (The `0x451 -> 0x13cc` patch is
+`+0xf7b` like the others; it is the *block offset* that was wrong.)
+
+The screen buffer the blit reads (`0x6492`) read back through the base palette
 matches the frozen screenshot with a one-row shift -- **90 of 199 rows and
 57,526 of 63,680 pixels byte exact**, every other pixel off by exactly one
 6-bit DAC step, which is the fade ramp's phase at the instant of the freeze,
 not a picture error.
+
+And the compose is checked against the original's *own instructions*, not only
+against its output: put a known 3D buffer and a known band buffer where the
+part expects them, set `ds/es/fs/si/cx` and `ip = 0x3680`, and the loop runs to
+`0x369a` in exactly `0x7d00 * 10` instructions, writing 64,000 pixels that are
+byte identical to what `web/js/part2.js`'s `compose()` predicts (0 differ).
 
 That also explains the geometry buffers: `0x2ccd0` (polygon list), `0x333f0`
 (projected x), `0x33e18`, `0x34840` and the 128x128 map at `0x35270` are **all

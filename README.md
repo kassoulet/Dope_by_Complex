@@ -189,12 +189,14 @@ the screen machinery around that engine (`web/js/part2.js`, checked by
   without any per line palette (an earlier note here claimed the opposite and
   was a miscount of part 1's 192 entry palette);
 * the shade table the compositor reads, rebuilt from block 2 to the running
-  part's 24,576 bytes, and the four credit bands at block `0xc01a`, byte
+  part's 24,576 bytes, and the four credit bands at block `0x1201a`, byte
   identical to memory;
-* the compose plus the one-row blit that scrolls the picture up: the frozen
-  screen buffer read back through the base palette matches the frozen
-  screenshot for 90 of 199 rows and 90% of its pixels, the remainder being one
-  6 bit DAC step -- the fade ramp's phase at the instant of the freeze.
+* the compose loop itself, run by the original's own instructions against a
+  known input and matching `compose()` on all 64,000 pixels, plus the one-row
+  blit that scrolls the picture up: the frozen screen buffer read back through
+  the base palette matches the frozen screenshot for 90 of 199 rows and 90% of
+  its pixels, the remainder being one 6 bit DAC step -- the fade ramp's phase
+  at the instant of the freeze.
 
 Original: (c) 1995 Complex — jmagic / jugi / reward.  Music replay routine
 based on Oskari Tammelin's ProTracker for GUS, as credited in `DOPE.TXT`.

@@ -20,6 +20,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { Part2, PALETTE_ENTRIES, FADE_STEP, FADE_TOP, FADE_FRAMES } from '../web/js/part2.js';
+import { Machine } from '../tools/vm/machine.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -219,13 +220,13 @@ if (!existsSync(snapBase + '.mem')) {
   eq('the compose table matches the live part byte for byte', differ, 0);
   eq('the table is 64 x 128 entries written three times', written, 64 * 128 * 3);
 
-  // A band lives *inside* the part image: block offset 0xc01a maps to
-  // part_linear + (0xc01a - 0x100), and the four bands follow each other there
-  // exactly as they do in the block.  (The code reaches them as ds:0xdb0a with
-  // ds patched to 0xdcc, i.e. 0xdcc0 + 0xdb0a = 0x1b7ca -- the same address,
-  // which puts the band-segment addend at 0x97b rather than the 0xf7b the
-  // code's other constants get.)
-  const bandBase = (meta.part_segment << 4) + (0xc01a - 0x100);
+  // A band lives *inside* the part image: block offset 0x1201a maps to
+  // part_linear + (0x1201a - 0x100) = 0x217ca, which is exactly what the code
+  // reaches -- `push 0x451 / pop ds` is patched to 0x13cc in memory, and
+  // 0x13cc0 + 0xdb0a = 0x217ca.  The four bands follow each other there as
+  // they do in the block.
+  const bandBase = (meta.part_segment << 4) + (0x1201a - 0x100);
+  eq('the patched band segment points at the block\'s band 0', bandBase, 0x217ca);
   let bandDiff = 0;
   for (let n = 0; n < 4; n++) {
     const want = part.band(n);
@@ -233,7 +234,7 @@ if (!existsSync(snapBase + '.mem')) {
     const got = mem.subarray(bandBase + n * 0x2800, bandBase + n * 0x2800 + want.length);
     for (let i = 0; i < want.length; i++) if (want[i] !== got[i]) bandDiff++;
   }
-  eq('blocks 0xc01a.. hold the four bands, as the frozen part does', bandDiff, 0);
+  eq('blocks 0x1201a.. hold the four bands, as the frozen part does', bandDiff, 0);
 
   // The composed screen is blitted one row down (segment 0x36eb copies from
   // screen+0x140), which is the scroll: the frozen part's own screen buffer,
@@ -270,6 +271,46 @@ if (!existsSync(snapBase + '.mem')) {
   ok('the screen buffer is shown one row down (the scroll)', shifted > unshifted,
     `one row down ${shifted} rows, none ${unshifted}`);
   ok('most of the frozen screen is reproduced exactly', shifted >= 80, `${shifted} of 199 rows`);
+}
+
+/* ------------------ the compose loop, run by the part's own instructions */
+
+// The strongest check available without the 3D engine: put a known span buffer
+// and a known band buffer where the part expects them, point the CPU at the
+// compose loop (segment 0x3680) in the frozen part's own memory, and see
+// whether `Part2.compose()` predicts what those instructions write.  This runs
+// the original's code, not a transcription of it.
+if (existsSync(snapBase + '.mem')) {
+  const cpuMem = new Uint8Array(readFileSync(snapBase + '.mem'));
+  const s = new Machine();
+  s.boot(cpuMem, JSON.parse(readFileSync(snapBase + '.json', 'utf8')));
+  const cpu = s.cpu;
+  const lin = (seg, off) => ((seg << 4) + ((off | 0) & 0xffff)) & 0xfffff;
+
+  const span = new Uint8Array(64000).map((_, i) => (i * 37 + 11) & 0x3f);
+  const bg = new Uint8Array(64000).map((_, i) => ((i * 13 + 5) & 0x7f) | 0x80);
+  s.mem.set(span, lin(0x6492, 0)); // the 3D buffer (0x5517, patched)
+  s.mem.set(bg, lin(0x54a2, 0)); // the background buffer (0x4527, patched)
+
+  cpu.if = 0;
+  cpu.sreg[3] = 0x6492; // ds
+  cpu.sreg[0] = 0x54a2; // es
+  cpu.sreg[4] = 0x44a2; // fs: the compose table (0x3527, patched)
+  cpu.r[6] = 0; // si
+  cpu.r[1] = 0x7d00; // cx
+  cpu.ip = 0x3680;
+  let steps = 0;
+  while (cpu.ip !== 0x369a && steps < 4000000) { cpu.step(); steps++; }
+  eq('the compose loop runs to its end', cpu.ip, 0x369a);
+  // Ten instructions per pixel pair: the two loads, the two lookups, the store,
+  // the pointer and the two loop instructions (segment 0x3680..0x3698).
+  eq('and takes 0x7d00 * 10 instructions', steps, 0x7d00 * 10);
+
+  const got = s.mem.slice(lin(0x6492, 0), lin(0x6492, 0) + 64000);
+  const want = part.compose(span, bg);
+  let bad = 0;
+  for (let i = 0; i < 64000; i++) if (got[i] !== want[i]) bad++;
+  eq('the original\'s compose writes what compose() predicts', bad, 0);
 }
 
 console.log(`${passed}/${passed + failed} passed`);

@@ -25,7 +25,7 @@
  *
  * What is transcribed here beyond the colour side is the screen *compositor*:
  * the shade table (segment 0x1998), the credit bands (they sit inside the part
- * image at block 0xc01a, 0x2800 bytes each) and the compose loop (segment
+ * image at block 0x1201a, 0x2800 bytes each) and the compose loop (segment
  * 0x3680) that turns the 3D buffer plus a band into the 320x200 index picture.
  * The whole pipeline is in the comment on the screen pipeline constants below.
  * Only the 3D engine that fills the span buffer is still missing.
@@ -67,7 +67,7 @@ export const H = 200;
  *   0x3621  es = 0x4527, di = 0x6e00, cx = 0xa00: fill the 0x2800 byte band
  *           strip from `n = [cs:0x1904]`:  -2 keeps the previous band, -1 is
  *           black, 0 is the 0x80808080 grey, anything else copies
- *           ds:0xdb0a + n*0x2800 from the band segment (block 0x4510)
+ *           ds:0xdb0a + n*0x2800 from the band segment (block 0x1201a)
  *   0x3680  the compose, 0x7d00 times on word pairs: for each of the 64,000
  *           screen pixels, `byte = map[(span << 8) | band]` where `span` is the
  *           3D buffer at ds=0x5517 and `band` the strip at es=0x4527
@@ -87,7 +87,7 @@ export const SHADE_SLOPE_BAND = 0x60;
 export const SHADE_WRITES = [0x80, 0x8000, 0x8080]; // [bx+0x80], [bx-0x8000], [bx-0x7f80]
 
 /** Block 2 offset of band 0; the bands are 0x2800 bytes (32 rows) apart. */
-export const BAND_OFFSET = 0xc01a;
+export const BAND_OFFSET = 0x1201a;
 export const BAND_BYTES = 0x2800;
 export const BAND_ROWS = BAND_BYTES / W; // 32
 export const BAND_COUNT = 0x10; // the script only reaches the first few
@@ -185,7 +185,9 @@ export class Part2 {
    *
    * written three times, so the same entry is reachable from three bases.  The
    * high bit is always set, which is why every composed pixel uses the upper
-   * half of the DAC.  Read with `table[((span << 8) | band) + 0x80]`.
+   * half of the DAC.  The compose reads it at `table[(span << 8) | band]`, and
+   * the three copies are what make `band` bytes >= 0x80 (the picture values)
+   * and `span` bytes >= 0x80 (the 3D layer) land on their entry too.
    */
   shadeTable(out = new Uint8Array(0x10000)) {
     for (let span = 0x3f; span >= 0; span--) {
@@ -213,7 +215,7 @@ export class Part2 {
   compose(span, bg, out = new Uint8Array(W * H)) {
     const table = this.shade || (this.shade = this.shadeTable());
     for (let i = 0; i < W * H; i++) {
-      out[i] = table[(((span[i] << 8) | bg[i]) + 0x80) & 0xffff];
+      out[i] = table[((span[i] << 8) | bg[i]) & 0xffff];
     }
     return out;
   }
