@@ -14,10 +14,9 @@
  */
 
 
-import { VGA } from "./engine.js";
 import { Mod } from "./mod.js";
-import { seekMod, renderBlock, songDuration } from "./transport.js";
-import { buildPalette, SCENES, sceneForOrder, sceneIntro } from "./scenes.js";
+import { seekMod, renderBlock } from "./transport.js";
+import { renderLook, DEMO_END } from "./look.js";
 import { Part1, W, H, counterAt, END_COUNTER, TICKS_PER_SECOND, COUNTS_PER_TICK } from "./part1.js";
 
 const $ = (id) => document.getElementById(id);
@@ -29,14 +28,11 @@ const timeLabel = $("time");
 const aspectBtn = $("aspect");
 
 const params = new URLSearchParams(location.search);
-const forcedScene = params.get("scene"); // ?scene=N pins one reconstructed part
+const forcedScene = null; // (the old ?scene=N pin went with the placeholder scenes)
 const originalMode = params.has("vm") || params.get("part") === "1"; // part 1 only
 const stillSeconds = params.has("t") ? Math.max(0, Number(params.get("t")) || 0) : null;
 const PART1_SECONDS = END_COUNTER / COUNTS_PER_TICK / TICKS_PER_SECOND;
 
-const vga = new VGA();
-vga.attach(canvas);
-buildPalette(vga);
 const pctx = canvas.getContext("2d");
 pctx.imageSmoothingEnabled = false;
 
@@ -46,7 +42,7 @@ let audio = null;
 let node = null;
 let sr = 44100;
 let tickLeft = 0;
-let duration = originalMode ? PART1_SECONDS : 515;
+let duration = originalMode ? PART1_SECONDS : DEMO_END; // the original exits to DOS at ~433 s
 let started = false;
 let paused = false;
 let framesDone = 0; // song clock, in output frames
@@ -146,7 +142,6 @@ async function start() {
   status.textContent = "loading DOPE.MOD...";
   bytes = await fetchBytes("../DOPE.MOD");
   mod = new Mod(bytes, 44100);
-  if (!originalMode) duration = songDuration(bytes);
 
   if (forcedScene === null) {
     status.textContent = "reading part 1 out of DOPE.EXE...";
@@ -195,15 +190,10 @@ function drawAt(t) {
       `  scroll ${4 * (counter >> 4)}  pan ${part.panPixels(counter)}`;
     return;
   }
-  const wanted = forcedScene !== null
-    ? SCENES[Math.max(0, Math.min(SCENES.length - 1, Number(forcedScene) || 0))]
-    : sceneForOrder(mod ? mod.order : 0, mod ? mod.songLength : 124);
-  wanted.draw(vga, t, mod);
-  vga.present();
-  if (playing !== "scenes") {
-    playing = "scenes";
-    status.textContent = (part ? `part 1 ended at counter ${END_COUNTER} -- parts 2..7 are reconstructed: ` : "scenes: ") +
-      `${wanted.name}`;
+  const name = renderLook(pctx, t);
+  if (playing !== name) {
+    playing = name;
+    status.textContent = `look-alike (not a port): ${name}`;
   }
 }
 
@@ -222,8 +212,7 @@ document.addEventListener("keydown", (e) => {
 });
 
 // draw an attract frame straight away so the page is never blank
-sceneIntro(vga, 0);
-vga.present();
+renderLook(pctx, 40);
 updateTransport(0);
 
 if (stillSeconds !== null) {

@@ -23,7 +23,6 @@ The canvas is shown 4:3 (mode 13h pixels are 1.2x taller than wide).
 |-----|------|
 | `/web/` | the demo: **part 1** as the original, then the reconstructed parts 2..7 |
 | `/web/?vm=1` | part 1 on its own, pixel exact, read out of `DOPE.EXE` |
-| `/web/?scene=3` | pin one part (0 intro, 1 boxes, 2 envmap, 3 shadow, 4 globe, 5 credits) |
 | `/web/?autostart=1` | start without a click (used by the headless checks) |
 | `/web/?t=45` | pin the picture at 45 s (one frame, no audio; how the handover is checked) |
 | `/web/selftest.html` | renders every scene, reports coverage, prints the frames |
@@ -52,7 +51,8 @@ web/js/part1.js   part 1 transcoded: picture + scroll + palette, written as pixe
 web/js/part1player.js clocks that at the original's 69 Hz and paints the canvas
 web/js/engine.js  320x200 8 bit framebuffer, palette, polygon rasteriser
 web/js/mod.js     28 channel ProTracker/GUS replayer
-web/js/scenes.js  the demo parts and the palette
+web/js/look.js       look-alikes of parts 2..end, timeline measured from the original
+web/js/scenes.js (old placeholders, only selftest uses it)  the demo parts and the palette
 web/js/main.js    audio callback + scene loop
 tests/            regression tests for the extraction pipeline and the player
 docs/ANALYSIS.md  disassembly notes: EXE layout, driver, module, effects
@@ -178,3 +178,9 @@ visible frame and needs a per line model, not part 1's one palette per counter.
 
 Original: (c) 1995 Complex — jmagic / jugi / reward.  Music replay routine
 based on Oskari Tammelin's ProTracker for GUS, as credited in `DOPE.TXT`.
+
+## Update: timeline and look-alikes
+
+`build/ref_full` (not committed) is a capture of the whole original, one frame per 3 s.
+It shows 8 parts and the demo exiting to DOS at ~433 s.  `web/js/look.js` imitates
+parts 2..end on that timeline.  They are look-alikes; only part 1 is a port.

@@ -22,7 +22,7 @@
   </div>
   <div id="status">click to start</div>
 </div>
-<p class="note">Keys: <b>space</b> pause · <b>←/→</b> seek 5 s · <b>j/l</b> 10 s · <b>Home</b> restart. Pause and seek move the picture and the music together. Part 1 only: <a href="?vm=1">?vm=1</a>. Serve the repository root over http (<code>python3 -m http.server</code>) and open <code>/web/</code>.</p>
+<p class="note">Keys: <b>space</b> pause · <b>←/→</b> seek 5 s · <b>j/l</b> 10 s · <b>Home</b> restart. Pause and seek move the picture and the music together. Part 1 only: <a href="?vm=1">?vm=1</a>. Pin a frame: <code>?t=200</code>. Serve the repository root over http (<code>python3 -m http.server</code>) and open <code>/web/</code>.</p>
 
 <h2 id="original">The original</h2>
 <p><code>DOPE.EXE</code> (584,133 bytes) by <b>Complex</b>: code <i>jmagic</i>, graphics and music <i>jugi</i>, boxes pixelled by <i>reward</i>. It wants 550k of base memory, 600k of extended memory and <b>a Gravis UltraSound with 512k</b>: the music is a 28-channel ProTracker module mixed by the GUS hardware, not by the CPU. The readme admits the end scroll was never made.</p>
@@ -51,9 +51,11 @@
 <tr><td>unpacking, module parsing</td><td>exact (CRC-checked)</td></tr>
 <tr><td>part 1 (first ~39 s)</td><td>transcoded from the original data, pixel-exact on 11/15 reference frames</td></tr>
 <tr><td>music</td><td>the original module; own replayer, not bit-exact to the GUS</td></tr>
-<tr><td>parts 2..7</td><td><b>not reversed.</b> The page shows my own placeholder scenes (different look and colours from the real thing, see the part 2 capture above). Part 2 rewrites the palette mid-frame and needs a per-scanline model first.</td></tr>
+<tr><td>timeline of the whole demo</td><td>measured: one DOSBox-X frame every 3 s of the original, 8 parts, exits to DOS at ~7:13 (the player stops there, the song runs on to 8:35)</td></tr>
+<tr><td>parts 2..end</td><td><b>look-alikes, not ports.</b> Each is a procedural imitation timed to the capture (chrome discs and credits, ribbons "phong BLUR motion", "7800 PHONG polys", "FIRE clouds", "FRACTAL scape", "ENV mapping", "BUMP glow", "SHADOW volume / material MORPH / METAL shading", "LIGHT sources", "WORLD domination", end). They are recognisably the same sequence but not the same pixels.</td></tr>
 </table>
-<p>That last row is the honest gap: the 3D parts are 440 KB overlays each, and I only have captures of them, not a port.</p>
+<figure><img src="img/timeline.jpg" alt="timeline" style="max-width:100%;aspect-ratio:auto"><figcaption>The original, one frame every 3 s from 0:39 to 7:13, left to right, top to bottom (DOSBox-X capture).</figcaption></figure>
+<p>That is the honest gap: the 3D parts are 370-480 KB overlays each (a texture mapper, object data, per-line palette tricks). I have captures of them and disassembly notes, not a port. <code>web/js/look.js</code> says so in its header.</p>
 
 <p><a href="writeup.html"><b>→ The best bits of assembly in the original</b></a></p>
 </main>
