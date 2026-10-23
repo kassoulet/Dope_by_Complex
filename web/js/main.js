@@ -283,6 +283,8 @@ if (stillSeconds !== null) {
       if (stillSeconds >= PART1_SECONDS) emu = await EmuParts.load(blocks, PART1_SECONDS);
     }
     drawAt(stillSeconds);
+    // an emulated part answers a few seconds later (it has to fast forward): keep asking
+    if (emu) setInterval(() => drawAt(stillSeconds), 250);
   });
 } else if (params.has("autostart")) {
   run(start);
