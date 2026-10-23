@@ -54,11 +54,28 @@ function dueTick() {
   return target + (running ? (performance.now() - targetWall) / 1000 * TICK_HZ : 0);
 }
 
+// The screen a part leaves for the next: part k is run to its end (cheap, a port only moves its
+// clock) and its picture and palette are taken.  The parts that continue on the previous screen (4, 5, 6)
+// start from it, so the cut between two parts is the one the viewer was just looking at, not a
+// recording made with the emulator (`screens`, kept as a fallback).
+const ends = [];
+function endScreen(k) {
+  if (!ends[k]) {
+    const r = new PortRunner(blocks[k], parts[k], parts[k].screen ? endScreen(k - 1) : null);
+    r.advanceTo(1e9);
+    const { pixels, pal } = r.snapshot();
+    ends[k] = { pixels, pal };
+  }
+  return ends[k];
+}
+
 function startPart(k, offset) {
   partIdx = k;
   const p = parts[k];
-  const screen = p.screen ? screens[p.screen] : null;
-  runner = new PartRunner(blocks[k], p, screen);
+  let screen = null;
+  if (p.screen) { try { screen = endScreen(k - 1); } catch (e) { screen = screens[p.screen]; } }
+  // every part has a port; the emulator is only the fallback for one that has not
+  runner = hasPort(p.block) ? new PortRunner(blocks[k], p, screen) : new PartRunner(blocks[k], p, screen);
   seekTo = offset;
   if (offset > 0) postMessage({ type: 'seeking', part: k });
 }
@@ -107,6 +124,8 @@ onmessage = (e) => {
   if (d.cmd === 'init') {
     blocks = d.blocks; parts = d.parts; screens = d.screens || {};
     postMessage({ type: 'ready' });
+    // the chain of end screens a seek into parts 4..6 needs takes a second: do it while part 1 plays
+    setTimeout(() => { try { endScreen(parts.length - 2); } catch (e) { /* the seek will try again */ } }, 1500);
   } else if (d.cmd === 'play') {
     startPart(d.part, d.offset);
     target = d.tick; targetWall = performance.now(); running = d.running;

@@ -135,7 +135,8 @@ try {
     ok(`seek to ${Math.floor(sec / 60)}:00 has no page error`, !/^(JS error|error:)/.test(s.status), s.status);
   }
 
-  // pause freezes an emulated part too
+  // pause freezes an emulated part too (a part is a port now: let the first frames land before pausing)
+  await sleep(2500);
   await page.eval('__dope.pause()');
   await sleep(500);
   const e1 = await page.eval(state);

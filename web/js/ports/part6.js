@@ -31,8 +31,9 @@ const A6 = {
 const u16 = (v) => v & 0xffff;
 
 export class Part6 extends Part3 {
-  constructor(image, { screen = null, pal = null } = {}) {
-    super(image, { screen, pal });
+  constructor(image, opts = {}) {
+    const { screen = null, pal = null } = opts;
+    super(image, { ...opts, screen, pal });
     // 0x3a51: the picture goes into the frame (a 64 KB copy that wraps round its segment), the first palette into cs
     const bg = image.subarray(seg(0xc97), seg(0xc97) + 0x10000);
     for (let k = 0; k < 0x10000; k++) this.fb[(0x140 + k) & 0xffff] = bg[k];
@@ -138,6 +139,6 @@ export class Part6 extends Part3 {
 
 Part6.CFG = {
   script: script.map((st) => ({ ...st, set: st.set.map(([a, sz, v]) => [a, sz, a === 0x176c ? (v + RELOC) & 0xffff : v]) })),
-  gsSeg: 0x667b, A: A6, L: OFF6, V: V6, background: 0xc97, label: 0, csSize: 0x3a00, tShift: 10, texData: true, negEnv: true, rowsAt: 0x10,
+  endTicks: 37, gsSeg: 0x667b, A: A6, L: OFF6, V: V6, background: 0xc97, label: 0, csSize: 0x3a00, tShift: 10, texData: true, negEnv: true, rowsAt: 0x10,
   dac: [],
 };

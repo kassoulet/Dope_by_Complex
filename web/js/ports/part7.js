@@ -98,6 +98,6 @@ export class Part7 extends Part3 {
 
 Part7.CFG = {
   script: script.map((st) => ({ ...st, set: st.set.map(([a, sz, v]) => [a, sz, a === 0x19c6 ? (v + RELOC) & 0xffff : v]) })),
-  gsSeg: 0x3de1, A: A7, L: OFF7, V: V7, background: 0x5ab4, label: 0,
+  endTicks: 350, gsSeg: 0x3de1, A: A7, L: OFF7, V: V7, background: 0x5ab4, label: 0,
   dac: [[0x5a84, 0, 720, 0], [0x3beb, 0x2da, 48, 720]],
 };

@@ -99,10 +99,20 @@ its copy changes (the `ndiff` listings) and running the lock step.
   The test keeps a list of masked ranges, each with the reason.
 * **Test the ending too.**  The last frames, a palette fade, a white flash, are the
   parts a frame comparison never reaches.  Every part's end is compared separately.
+* **Check that the page runs the port.**  For a while the worker imported the ports and
+  never built one: the player ran the emulator, and the status line, which read a flag in
+  `parts.json`, said "ported to JavaScript".  Every lock step test passed regardless.
+  `tests/test_page_ports.mjs` seeks the real page into parts 3, 5 and 7, pauses, and compares the
+  canvas with the picture the port makes in node for the same tick: byte for byte.
+* **A screen handed from one part to the next is state.**  Parts 4, 5 and 6 continue on the
+  previous part's screen.  The page used three recordings made with the emulator; now the worker
+  runs the previous port to its end and starts from that (about 0.7 s the first time, done in
+  the background while part 1 plays), so the cut is the one the viewer was just looking at.
 * **Timing is data, not code.**  Each script step ends at the first *frame* after its
   tick count, so the part's length depends on how fast the machine drew.  The page
-  gives the port the measured length and the port spreads the difference
-  (`part2.js`); the lock step test does not, so that it stays exact.
+  gives the port the measured length and the port spreads the difference over its
+  steps (`slackFor` in `part3.js`; every part but part 4 ends on the measured tick);
+  the lock step test does not, so that it stays exact.
 
 ## The tools
 

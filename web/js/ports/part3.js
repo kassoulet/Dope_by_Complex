@@ -164,7 +164,22 @@ export class Part3 {
   scriptCheck() {
     if (this.done || this.ending) return;
     this.setD(this.A.frames, this.d(this.A.frames) + 1);
-    if (this.d(this.A.ticks) >= this.cfg.script[this.step].ticks) this.nextStep();
+    if (this.d(this.A.ticks) >= this.cfg.script[this.step].ticks + this.slackFor(this.step)) this.nextStep();
+  }
+
+  /**
+   * The original leaves a script step at the first FRAME after its tick count is up, so every step
+   * runs a frame's time over, and a part's length depends on how fast the machine drew.  The page
+   * knows the length it measured (`opts.ticks`); given it, the port spreads the difference over the
+   * steps (whole ticks, as evenly as it can).  Without it the port is exact, which is what the
+   * lock step test needs.
+   */
+  slackFor(step) {
+    const t = this.opts && this.opts.ticks;
+    if (!t) return 0;
+    const steps = this.cfg.script, sum = steps.reduce((n, st) => n + (st.ticks || 0), 0);
+    const per = Math.max(0, (t - sum - (this.cfg.endTicks || 0)) / steps.length);
+    return Math.floor((step + 1) * per) - Math.floor(step * per);
   }
 
   /** The script has run out. */

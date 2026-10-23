@@ -103,20 +103,6 @@ export class Part2 extends Part3 {
     }
   }
 
-  /**
-   * The original leaves a step at the first FRAME after its tick count is up, so each of the 153
-   * steps runs a frame's time over (about 6 ticks as the part was measured: 8200 ticks in all,
-   * against the script's 7296).  The page times the part by that measure, so given the part's
-   * length (`opts.ticks`) the port spreads the difference over the steps; without it the port is
-   * exact (as the lock step test needs).
-   */
-  slackFor(step) {
-    const t = this.opts && this.opts.ticks;
-    if (!t) return 0;
-    const sum = this.cfg.script.reduce((n, st) => n + (st.ticks || 0), 0), per = Math.max(0, (t - sum) / this.cfg.script.length);
-    return Math.floor((step + 1) * per) - Math.floor(step * per);
-  }
-
   nextStep() {
     this.step++;
     const steps = this.cfg.script;

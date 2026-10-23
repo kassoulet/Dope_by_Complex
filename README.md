@@ -119,6 +119,7 @@ node tests/test_part2_frames.mjs # part 2 one frame per tick in the rig
 node tests/test_transport.mjs    # seek == continuous playback, song duration
 node tests/test_mod.mjs          # player: header, sample tables, seek == playback
 node tests/test_browser.mjs      # the real page in headless Chrome: audio, pause, seek, loop
+node tests/test_page_ports.mjs   # the real page shows the ports' pictures (parts 3, 5, 7 byte for byte)
 
 # differential test of the interpreter against Unicorn (.venv has unicorn + capstone)
 node tools/difftrace2.mjs 6 --n 600000 --out build/diff6

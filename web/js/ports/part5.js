@@ -35,8 +35,9 @@ const A5 = {
 const u16 = (v) => v & 0xffff;
 
 export class Part5 extends Part3 {
-  constructor(image, { screen = null, pal = null } = {}) {
-    super(image, { screen, pal });
+  constructor(image, opts = {}) {
+    const { screen = null, pal = null } = opts;
+    super(image, { ...opts, screen, pal });
     // 0x31e2: the picture part 4 left becomes the background layer (its low nibbles) and the frame's first content
     const lo = new Uint8Array(64000);
     for (let i = 0; i < 64000; i++) lo[i] = this.vram[i] & 0x0f;
@@ -126,6 +127,6 @@ export class Part5 extends Part3 {
 
 Part5.CFG = {
   script: script.map((st) => ({ ...st, set: st.set.map(([a, sz, v]) => [a, sz, a === 0x1556 ? (v + RELOC) & 0xffff : v]) })),
-  gsSeg: 0x2685, A: A5, L: OFF5, V: V5, background: 0x3f00, label: 0, csSize: 0x3800, tShift: 10, texData: true, addOffset: true, rowsAt: 0x375b,
+  endTicks: 64, gsSeg: 0x2685, A: A5, L: OFF5, V: V5, background: 0x3f00, label: 0, csSize: 0x3800, tShift: 10, texData: true, addOffset: true, rowsAt: 0x375b,
   dac: [],
 };
