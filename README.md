@@ -47,15 +47,19 @@ Click the canvas to start.  Space pauses, left/right seek 5 s, `j`/`l` 10 s, Hom
   4063, 2494; measured by running to the part's `int 21h/4Ch`).
 * Pause stops the interrupts and the interpreter.  Seek restarts the part on the
   screen the previous part left (`web/data/handoff{3,4,5}.z`, made by
-  `tools/mkhandoff.sh`) and calls the interrupt fast until the counters catch up.
+  `tools/mkhandoff.sh`) and calls the interrupt every 50,000 instructions until the counters catch up
+  (faster and part 6's polygon sorter loses its list: the hook moves the objects
+  under the frame being drawn).
 * A dynamic recompiler (`web/js/vm/jit.js`) turns each x86 basic block into a
   JavaScript function the first time it runs: registers are locals, ModRM is
   decoded once, flags are computed only if something can read them, a block that
   loops to its own start loops inside the function, and the immediates the
   parts patch in their own code are read from memory (`tests/test_jit.mjs`
   runs every part both ways in lock step and compares registers, flags, memory
-  and the card).  It runs 45-230 M instructions/s (the interpreter 16-20), which
-  is a few frames per tick of the original's 70 Hz for every part.
+  and the card).  It runs 45-230 M instructions/s (the interpreter 16-20): in node
+  the parts draw 40-65 distinct pictures per second against the clock
+  (`tools/realtime.mjs`), in headless Chrome 30-40 (the worker posts at most one
+  picture every 15 ms).
 * The interpreter was checked against Unicorn (QEMU's CPU) instruction by
   instruction: `tools/diffcheck.py` (one dumped state) and `tools/diffcheck2.py`
   (a whole run from boot with port reads and interrupts replayed).  It found

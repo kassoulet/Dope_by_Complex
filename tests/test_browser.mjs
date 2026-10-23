@@ -125,11 +125,12 @@ try {
     const k = partAt(sec);
     await page.eval(`__dope.seek(${sec})`);
     const want = `part ${k + 2} (block ${table.parts[k].block})`;
-    s = await page.until(state, (x) => x && x.status.includes(want) && /MIPS/.test(x.status) && x.ink > 1000,
+    s = await page.until(state, (x) => x && x.status.includes(want) && /pictures\/s/.test(x.status) && x.ink > 1000,
       `${Math.floor(sec / 60)}:00 to settle on ${want}`, 90000);
     ok(`seek to ${Math.floor(sec / 60)}:00 lands on ${want}`, s.status.includes(want), s.status);
     ok(`seek to ${Math.floor(sec / 60)}:00 is where it says`, Math.abs(s.t - sec) < 12, 't ' + s.t);
-    ok(`seek to ${Math.floor(sec / 60)}:00 keeps the music`, s.level > 0.001, 'level ' + s.level);
+    const lv = await page.until(state, (x) => x && x.level > 0.001, 'the music after the seek', 4000).catch(() => s);
+    ok(`seek to ${Math.floor(sec / 60)}:00 keeps the music`, lv.level > 0.001, 'level ' + lv.level);
     ok(`seek to ${Math.floor(sec / 60)}:00 draws a picture`, s.ink > 1000, 'ink ' + s.ink);
     ok(`seek to ${Math.floor(sec / 60)}:00 has no page error`, !/^(JS error|error:)/.test(s.status), s.status);
   }

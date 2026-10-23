@@ -37,7 +37,7 @@ export class EmuParts {
     this.end = t;
     this.worker = new Worker(new URL("./emuworker.js", import.meta.url), { type: "module" });
     this.frame = null;
-    this.stats = { mips: 0 };
+    this.stats = { mips: 0, fps: 0 };
     this.seeking = false;
     this.cur = -1;
     this.lastT = -1;

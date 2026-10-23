@@ -212,7 +212,7 @@ function drawAt(t) {
   const k = emu.draw(t, pctx, !paused);
   const s = emu.stats;
   status.textContent = `original code, part ${k + 2} (block ${emu.parts[k].block}) run in a JS x86 -- ` +
-    (emu.seeking ? "seeking..." : `${s.mips.toFixed(1)} MIPS, tick ${emu.frame ? emu.frame.tick : 0} of ${emu.parts[k].ticks}`);
+    (emu.seeking ? "seeking..." : `${s.fps.toFixed(0)} pictures/s, tick ${emu.frame ? emu.frame.tick : 0} of ${emu.parts[k].ticks}`);
 }
 
 /* ---------------------------------------------------------------- controls */

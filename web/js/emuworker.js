@@ -15,8 +15,14 @@
  */
 import { PartRunner, TICK_HZ } from './partvm.js';
 
-const FF_IPT = 1500; // instructions between interrupts while fast forwarding
-const PLAY_IPT = 4000; // minimum instructions after an interrupt while playing
+// Instructions between interrupts when the clock is ahead of the part (a seek, or
+// a stalled tab catching up).  Not smaller: the part draws a frame in about a
+// million instructions and its timer interrupt moves the objects, so an
+// interrupt every few thousand instructions changes the scene under the frame
+// being drawn.  Part 6 loses its polygon list that way and never recovers
+// (tested: 25,000 works, 12,000 hangs); 50,000 leaves a margin.
+const FF_IPT = 50000;
+const PLAY_IPT = 50000;
 
 let blocks = [];
 let parts = [];
@@ -32,6 +38,10 @@ let insts = 0;
 let statsAt = 0;
 let statsInsts = 0;
 let mips = 0;
+let fps = 0;
+let lastSum = -1;
+let fpsCount = 0;
+let fpsAt = 0;
 let pumping = false;
 let needFrame = false; // a restart is owed one picture even when paused
 
@@ -71,11 +81,16 @@ function pump() {
   }
   const now = performance.now();
   if (now - statsAt > 1000) { mips = (insts - statsInsts) / ((now - statsAt) * 1000); statsAt = now; statsInsts = insts; }
-  if (now - lastFrame > 30 && runner.tick >= seekTo && (running || needFrame)) {
+  if (now - lastFrame > 15 && runner.tick >= seekTo && (running || needFrame)) {
     lastFrame = now;
     needFrame = false;
     const { pixels, pal } = runner.snapshot();
-    postMessage({ type: 'frame', part: partIdx, tick: runner.tick, pixels, pal, stats: { mips, exited: runner.exited } }, [pixels.buffer, pal.buffer]);
+    // distinct pictures per second: what the part really manages to draw
+    let sum = 0;
+    for (let i = 0; i < 64000; i += 7) sum = (sum * 31 + pixels[i]) | 0;
+    if (sum !== lastSum) { fpsCount++; lastSum = sum; }
+    if (now - fpsAt > 1000) { fps = fpsCount * 1000 / (now - fpsAt); fpsCount = 0; fpsAt = now; }
+    postMessage({ type: 'frame', part: partIdx, tick: runner.tick, pixels, pal, stats: { mips, fps, exited: runner.exited } }, [pixels.buffer, pal.buffer]);
   }
   if (running || runner.tick < seekTo) { pumping = true; chan.port2.postMessage(0); }
 }
