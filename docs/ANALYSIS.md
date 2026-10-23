@@ -186,15 +186,11 @@ constant the GUS driver feeds to the GF1 voice rate registers.
   and the fact that seeking (mix and discard) is identical to continuous
   playback.
 
-*Reconstructed* (inferred from `DOPE.TXT` and the code, not bit exact):
-
-* `web/js/scenes.js` — the running order: intro, routine boxes sketch,
-  environment map, shadow volume, world domination, end scroll.  The geometry
-  is rebuilt from scratch (cube lattice, tessellated torus and sphere) rather
-  than extracted from the 7800 poly object data; the look follows the demo's
-  palette ramps and 320x200 mode 13h framing.
-* The scene cuts are driven by the module's order list, so they land on
-  musical boundaries like the original's hard cuts did.
+*Not reconstructed any more*: the earlier procedural scenes (`scenes.js`,
+`look.js`) are gone.  Parts 2..7 are the demo's own machine code, run by the
+interpreter and recompiler in `web/js/vm/` (see `docs/RUNTIME.md`, "Parts 2..7
+run from their own blocks"); the order and length of each part are measured
+(`web/data/parts.json`), not inferred from the module's order list.
 
 Part 1 was the part that could not be recovered by reading the code alone: its
 picture is a pre-shaded gradient strip the renderer copies with hand written
@@ -206,13 +202,9 @@ was **transcoded** into `web/js/part1.js`, which reproduces those frames from
 the demo's own data with no emulator (see `docs/RUNTIME.md`).  The emulator
 remains as verification rigging under `web/js/vm/`.
 
-Part 2 is captured (`build/ref_p2`) and its 
-frame and colour model is measured, but the part itself is not ported (see
-`docs/RUNTIME.md` for the entry points, the ISR and the palette).  Blocks 2..7
-each link in their own copy of the same 3D engine at a different offset -- block
-2's starts around `0x1c60` (vertex transform), `0x1d60` (projection),
-`0x2981`/`0x3420` (polygon fill) and `0x27c6` (texture span loop) -- and
-they address their data through segment constants that the loader relocates,
-so they cannot be run from the file alone without reproducing that patch.  The
-`web/` page opens with the original part 1 and hands over to procedurally drawn
-scenes when that part ends.
+Parts 2..7 are run, not ported: the page unpacks their blocks out of `DOPE.EXE`,
+applies the loader's relocation (measured, see `docs/RUNTIME.md`) and executes
+them.  Blocks 2..7 each link in their own copy of the same 3D engine at a
+different offset -- block 2's starts around `0x1c60` (vertex transform),
+`0x1d60` (projection), `0x2981`/`0x3420` (polygon fill) and `0x27c6` (texture
+span loop).
