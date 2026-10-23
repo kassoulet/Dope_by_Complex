@@ -5,9 +5,11 @@
  * driven differently: it has no instructions to run, only ticks to advance.
  */
 import { loadImage } from '../partvm.js';
+import { Part3 } from './part3.js';
 import { Part4 } from './part4.js';
 
 const PORTS = {
+  3: Part3,
   4: Part4,
 };
 
@@ -21,7 +23,7 @@ export class PortRunner {
     this.exited = false;
   }
 
-  get tick() { return this.port.ticks; }
+  get tick() { return this.port.total ?? this.port.ticks; }
 
   /** Move the part to timer tick `tick`. */
   advanceTo(tick) {

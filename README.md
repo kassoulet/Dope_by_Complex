@@ -7,7 +7,8 @@ made by taking `DOPE.EXE` apart:
   are read out of the unpacked block and the frames are written directly,
   pixel-exact against DOSBox-X;
 * **part 4** is a real **JavaScript port** (`web/js/ports/part4.js`), checked against the original routine by routine and in a frame by frame lock step (`docs/PORTING.md`, `docs/PORT4.md`);
-* **parts 2, 3, 5, 6, 7** are the demo's own **machine code**, run by a 16/32-bit
+* **part 3** is a real JavaScript port too (`web/js/ports/part3.js` on the shared 3D engine `engine3d.js` / `raster3.js`; 1,812 frames identical in lock step, `docs/PORT3.md`);
+* **parts 2, 5, 6, 7** are the demo's own **machine code**, run by a 16/32-bit
   real-mode x86 interpreter written in JavaScript (`web/js/vm/`) with a model of
   the VGA card behind it, in a Web Worker.  The effects are not reimplemented;
 * the **music** is the original 28 channel module in a JS replayer.
@@ -101,6 +102,8 @@ node tests/test_part1.mjs        # part 1: picture, scroll units, palette, frame
 node tests/test_partvm.mjs       # parts 2..7 from DOPE.EXE: ISR, picture, pinned digests
 node tests/test_port4.mjs [--quick]   # part 4's port, every routine against the original (8 moments)
 node tests/test_port4_run.mjs    # part 4's port in lock step with the original, whole part (4 min)
+node tests/test_engine3.mjs [--quick]  # the 3D engine's routines against block 3
+node tests/test_port3_run.mjs    # part 3's port in lock step, whole part
 node tests/test_x86.mjs          # interpreter regressions found by the Unicorn replay
 node tests/test_jit.mjs [runs]   # recompiler == interpreter, lock step, all six parts
 node tests/test_vga.mjs          # the VGA model
