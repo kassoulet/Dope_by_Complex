@@ -160,6 +160,10 @@ export class Machine {
     this.vga.writeVideo(offset, value, size);
   }
 
+  readVideo(offset, size) {
+    return this.vga.readVideo(offset, size);
+  }
+
   // ------------------------------------------------------------------- ports
 
   in8(port) {

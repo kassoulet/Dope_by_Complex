@@ -19,19 +19,20 @@
  *   node tests/test_browser.mjs            # CHROME=/path/to/chrome to override
  */
 
-import { spawn } from 'node:child_process';
-import { createServer } from 'node:net';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { Part1, W, H, counterAt, END_COUNTER } from '../web/js/part1.js';
-import { partAt, DEMO_END } from '../web/js/look.js';
+import { TICK_HZ } from '../web/js/partvm.js';
+import { launch, sleep, ROOT } from './browser_lib.mjs';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const CHROME = process.env.CHROME || 'google-chrome';
 const PART1_SECONDS = END_COUNTER / 138; // 69 interrupts/s, counter += 2
+const table = JSON.parse(readFileSync(join(ROOT, 'web/data/parts.json'), 'utf8'));
+const starts = [];
+let DEMO_END = PART1_SECONDS;
+for (const p of table.parts) { starts.push(DEMO_END); DEMO_END += p.ticks / TICK_HZ; }
+// the part on screen at `sec` (index into table.parts)
+const partAt = (sec) => { let k = 0; while (k + 1 < starts.length && sec >= starts[k + 1]) k++; return k; };
 
 let passed = 0;
 let failed = 0;
@@ -41,73 +42,6 @@ function ok(name, cond, detail) {
 }
 function eq(name, got, want) {
   ok(name, got === want, `got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
-}
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-async function freePort() {
-  return new Promise((resolve) => {
-    const s = createServer();
-    s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => resolve(p)); });
-  });
-}
-
-/* ------------------------------------------------------------ tiny CDP client */
-
-class Page {
-  constructor(ws) {
-    this.ws = ws;
-    this.id = 0;
-    this.pending = new Map();
-    ws.addEventListener('message', (ev) => {
-      const msg = JSON.parse(ev.data);
-      const p = this.pending.get(msg.id);
-      if (!p) return;
-      this.pending.delete(msg.id);
-      if (msg.error) p.reject(new Error(JSON.stringify(msg.error)));
-      else p.resolve(msg.result);
-    });
-  }
-
-  send(method, params = {}) {
-    const id = ++this.id;
-    return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
-      this.ws.send(JSON.stringify({ id, method, params }));
-    });
-  }
-
-  async eval(expression) {
-    const r = await this.send('Runtime.evaluate', {
-      expression, returnByValue: true, awaitPromise: true,
-    });
-    if (r.exceptionDetails) {
-      throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text);
-    }
-    return r.result.value;
-  }
-
-  /** Poll `expression` until `pred(value)` holds; returns the value. */
-  async until(expression, pred, what, timeoutMs = 15000) {
-    const t0 = Date.now();
-    let last;
-    for (;;) {
-      last = await this.eval(expression);
-      if (pred(last)) return last;
-      if (Date.now() - t0 > timeoutMs) {
-        throw new Error(`timed out waiting for ${what} (last ${JSON.stringify(last)})`);
-      }
-      await sleep(100);
-    }
-  }
-
-  async goto(url) {
-    await this.send('Page.navigate', { url });
-    // wait for the document and its module script to finish loading
-    await this.until('document.readyState', (s) => s === 'complete', 'document load');
-  }
-
-  close() { try { this.ws.close(); } catch { /* already gone */ } }
 }
 
 const state = `(() => {
@@ -122,53 +56,11 @@ const waitStarted = (page) => page.until(state, (s) => s && s.started && s.t > 0
 
 /* ---------------------------------------------------------------------- main */
 
-const httpPort = await freePort();
-const dbgPort = await freePort();
-const userDir = mkdtempSync(join(tmpdir(), 'dope-chrome-'));
-
-const server = spawn('python3', ['-m', 'http.server', String(httpPort), '--bind', '127.0.0.1'], {
-  cwd: ROOT, stdio: 'ignore',
-});
-const chrome = spawn(CHROME, [
-  '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
-  '--autoplay-policy=no-user-gesture-required', '--mute-audio',
-  '--remote-debugging-port=' + dbgPort, '--remote-allow-origins=*',
-  '--user-data-dir=' + userDir, '--window-size=640,480', '--disable-dev-shm-usage',
-  'about:blank',
-], { stdio: 'ignore' });
-
-function cleanup(code) {
-  chrome.kill('SIGKILL');
-  server.kill('SIGKILL');
-  try { rmSync(userDir, { recursive: true, force: true }); } catch { /* best effort */ }
-  process.exit(code);
-}
-
-const base = `http://127.0.0.1:${httpPort}/web/`;
+const { page, base, cleanup } = await launch();
 
 try {
-  // wait for Chrome's debugging endpoint
-  let target = null;
-  for (let i = 0; i < 100 && !target; i++) {
-    try {
-      const list = await (await fetch(`http://127.0.0.1:${dbgPort}/json/list`)).json();
-      target = list.find((t) => t.type === 'page');
-    } catch { /* not up yet */ }
-    if (!target) await sleep(100);
-  }
-  if (!target) throw new Error('chrome did not open a debugging port');
-
-  const ws = new WebSocket(target.webSocketDebuggerUrl);
-  await new Promise((res, rej) => {
-    ws.addEventListener('open', res, { once: true });
-    ws.addEventListener('error', rej, { once: true });
-  });
-  const page = new Page(ws);
-  await page.send('Runtime.enable');
-  await page.send('Page.enable');
 
   // Node's side of the part 1 comparison: the frame the original shows at 30 s.
-  const { readFileSync } = await import('node:fs');
   const part1 = Part1.fromExecutable(new Uint8Array(readFileSync(join(ROOT, 'DOPE.EXE'))));
   const digestOf = (counter) => {
     const rgba = part1.rgba(counter, new Uint8ClampedArray(W * H * 4));
@@ -184,7 +76,7 @@ try {
   eq('page starts without a click', s.started, true);
   eq('audio context is running', s.audio, 'running');
   eq('canvas is shown 4:3', s.aspect, '4 / 3');
-  eq('whole demo duration', Math.round(s.duration), DEMO_END);
+  eq('whole demo duration', Math.round(s.duration), Math.round(DEMO_END));
 
   // audio actually produces samples: the callback runs and the block is loud
   const level = await page.until(state, (x) => x && x.level > 0.001, 'non-silent audio', 8000);
@@ -228,18 +120,31 @@ try {
     at30.digest, digestOf(counter30));
   await page.eval('__dope.play()');
 
-  // 2:00 and 6:00 -- reconstructed parts, but the right ones, with music
+  // 2:00 and 6:00 -- parts run from the original code: restart + fast forward, then play
   for (const sec of [120, 360]) {
+    const k = partAt(sec);
     await page.eval(`__dope.seek(${sec})`);
-    await sleep(500);
-    s = await page.eval(state);
-    const want = partAt(sec)[2];
-    ok(`seek to ${Math.floor(sec / 60)}:00 lands on "${want}"`, s.status.includes(want), s.status);
-    ok(`seek to ${Math.floor(sec / 60)}:00 is not stalled`, Math.abs(s.t - (sec + 0.5)) < 1.0, 't ' + s.t);
+    const want = `part ${k + 2} (block ${table.parts[k].block})`;
+    s = await page.until(state, (x) => x && x.status.includes(want) && /MIPS/.test(x.status) && x.ink > 1000,
+      `${Math.floor(sec / 60)}:00 to settle on ${want}`, 90000);
+    ok(`seek to ${Math.floor(sec / 60)}:00 lands on ${want}`, s.status.includes(want), s.status);
+    ok(`seek to ${Math.floor(sec / 60)}:00 is where it says`, Math.abs(s.t - sec) < 12, 't ' + s.t);
     ok(`seek to ${Math.floor(sec / 60)}:00 keeps the music`, s.level > 0.001, 'level ' + s.level);
     ok(`seek to ${Math.floor(sec / 60)}:00 draws a picture`, s.ink > 1000, 'ink ' + s.ink);
     ok(`seek to ${Math.floor(sec / 60)}:00 has no page error`, !/^(JS error|error:)/.test(s.status), s.status);
   }
+
+  // pause freezes an emulated part too
+  await page.eval('__dope.pause()');
+  await sleep(500);
+  const e1 = await page.eval(state);
+  await sleep(1500);
+  const e2 = await page.eval(state);
+  eq('pause freezes the song clock in an emulated part', e2.t, e1.t);
+  eq('pause freezes the emulated picture', e2.digest, e1.digest);
+  await page.eval('__dope.play()');
+  const e3 = await page.until(state, (x) => x && x.digest !== e1.digest, 'the emulated picture to move again', 20000);
+  ok('play moves the emulated picture again', e3.digest !== e1.digest);
 
   /* ------------------------------------------------------ 4. the 7:15 loop */
 

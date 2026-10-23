@@ -14,7 +14,7 @@
  */
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { Machine } from './vm/machine.js';
+import { Machine } from '../web/js/vm/machine.js';
 import { encodePNG, indexedToRGB } from './png.mjs';
 
 export const SEGMENT = 0xf8b;
@@ -60,10 +60,10 @@ export function findGs(block) {
   return null;
 }
 
-export function makePart(n, { ipt = 20000, gs = null, screen = null } = {}) {
+export function makePart(n, { ipt = 20000, gs = null, screen = null, left = null } = {}) {
   const block = new Uint8Array(readFileSync(blockFile(n)));
   const relocs = JSON.parse(readFileSync('tools/relocs.json', 'utf8'))[String(n)];
-  const mem = loadImage(block, relocs.reloc);
+  const mem = loadImage(block, relocs.reloc, SEGMENT, left);
   const entry = (relocs.entry ?? findEntry(block)) - 0x100;
   const m = new Machine();
   m.vga.layout = 'nopan';
@@ -100,7 +100,9 @@ function main(argv) {
   const initFile = opt('init', null);
   let screen = null;
   if (initFile) { const b = readFileSync(initFile); screen = { pixels: b.subarray(0, 64000), pal: b.subarray(64000, 64768) }; }
-  const { m, entry } = makePart(n, { ipt, gs: gs === null ? null : parseInt(gs, 16), screen });
+  const memInit = opt('mem-init', null);
+  const left = memInit ? new Uint8Array(readFileSync(memInit)) : null;
+  const { m, entry } = makePart(n, { ipt, gs: gs === null ? null : parseInt(gs, 16), screen, left });
   let ticks = 0;
   const oi = m.cpu.interrupt.bind(m.cpu);
   m.cpu.interrupt = (v) => { if (v === 8) ticks++; return oi(v); };
@@ -122,6 +124,8 @@ function main(argv) {
   };
   const t0 = Date.now();
   while (count < frames && m.cpu.insts < maxInst && !m.exited && !m.stopped) { m.cpu.step(); m.tick(); }
+  const memDump = opt('mem-dump', null);
+  if (memDump) writeFileSync(memDump, m.mem);
   const dump = opt('exit-dump', null);
   if (dump) {
     const b = Buffer.alloc(64768);

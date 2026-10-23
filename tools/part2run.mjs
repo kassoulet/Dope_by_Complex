@@ -35,7 +35,7 @@
 
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { Machine } from './vm/machine.js';
+import { Machine } from '../web/js/vm/machine.js';
 import { encodePNG, indexedToRGB } from './png.mjs';
 
 export const BLOCK = 'build/block02_00f66c.bin';

@@ -89,16 +89,24 @@ export class CPU {
 
   // ---------------------------------------------------------------- memory
 
-  read8(a) { return this.mem[a & 0xfffff]; }
+  // Reads of A0000..AFFFF come from the card (the picture the parts wrote), not
+  // from the flat memory image: a part that saves or restores the screen reads it back.
+  read8(a) {
+    a &= 0xfffff;
+    if (a >= 0xa0000 && a < 0xb0000 && this.bus && this.bus.readVideo) return this.bus.readVideo(a - 0xa0000, 1);
+    return this.mem[a];
+  }
 
   read16(a) {
     a &= 0xfffff;
+    if (a >= 0xa0000 && a < 0xb0000 && this.bus && this.bus.readVideo) return this.bus.readVideo(a - 0xa0000, 2);
     const m = this.mem;
     return m[a] | (m[(a + 1) & 0xfffff] << 8);
   }
 
   read32(a) {
     a &= 0xfffff;
+    if (a >= 0xa0000 && a < 0xb0000 && this.bus && this.bus.readVideo) return this.bus.readVideo(a - 0xa0000, 4);
     const m = this.mem;
     return ((m[a] | (m[(a + 1) & 0xfffff] << 8) | (m[(a + 2) & 0xfffff] << 16) |
       (m[(a + 3) & 0xfffff] << 24)) >>> 0);

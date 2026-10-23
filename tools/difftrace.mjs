@@ -11,7 +11,7 @@
  * edx ebx esp ebp esi edi flags).
  */
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { Machine } from './vm/machine.js';
+import { Machine } from '../web/js/vm/machine.js';
 import { loadImage, PART_SEGMENT, ENTRY, COUNTER, BLOCK } from './part2run.mjs';
 
 const arg = (k, d) => { const i = process.argv.indexOf('--' + k); return i < 0 ? d : process.argv[i + 1]; };

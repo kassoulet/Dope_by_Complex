@@ -38,7 +38,7 @@ tools/probe.py    reads the emulated RAM to find the load layout
 tools/framediff.py exact pixel comparison of a frame against a reference
 tools/vmsnap.py   freezes DOSBox-X and dumps guest RAM + part segment + screen
 tools/part1check.mjs  renders part 1 from DOPE.EXE alone, for framediff
-tools/vmrun.mjs   runs that image in tools/vm/ and renders frames as PNG
+tools/vmrun.mjs   runs that image in web/js/vm/ and renders frames as PNG
 tools/part2run.mjs   boots part 2 from block 2 alone (loader relocation + gs)
 tools/part2frames.mjs  part 2 one frame per timer tick, to .idx/.pal/.png
 tools/part2diff.py  exact-pixel comparison of those frames with build/ref_p2
@@ -46,9 +46,9 @@ tools/png.mjs     tiny PNG encoder used by the frame tools
 tools/modtest.mjs renders DOPE.MOD with web/js/transport.js  song clock: tick scheduling, seek (no mixing), duration
 web/js/mod.js to a wav
 tools/parity.py   compares that render against libopenmpt (openmpt123)
-tools/vm/x86.js   16/32-bit real mode x86 interpreter (verification rig)
-tools/vm/vga.js   mode 13h framebuffer, CRTC scroll/offset, panning, DAC (rig)
-tools/vm/machine.js memory map, 8253 timer, int 8, int 10h/21h, snapshot boot
+web/js/vm/x86.js   16/32-bit real mode x86 interpreter (verification rig)
+web/js/vm/vga.js   mode 13h framebuffer, CRTC scroll/offset, panning, DAC (rig)
+web/js/vm/machine.js memory map, 8253 timer, int 8, int 10h/21h, snapshot boot
 web/js/rnc.js     RNC ProPack decompressor -- reads the blocks out of DOPE.EXE
 web/js/part1.js   part 1 transcoded: picture + scroll + palette, written as pixels
 web/js/part1player.js clocks that at the original's 69 Hz and paints the canvas
@@ -143,7 +143,7 @@ eight blocks verify against the CRCs stored in the file), and `web/js/part1.js`
   an exact window into the unpacked picture,
   `screen(x,y) = picture[1024*y + x + 4*start + pan - 321]`;
 * the emulator that was used to *find* all of this is kept as verification
-  rigging in `tools/vm/` (`x86.js`, `vga.js`, `machine.js`, driven by
+  rigging in `web/js/vm/` (`x86.js`, `vga.js`, `machine.js`, driven by
   `tools/vmrun.mjs`).  It runs the frozen snapshot and agrees with the
   transcode frame for frame, which is how the transcode was checked before the
   reference comparisons.

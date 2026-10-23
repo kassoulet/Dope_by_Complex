@@ -15,7 +15,7 @@
  *   node tests/test_x86.mjs
  */
 
-import { Machine } from '../tools/vm/machine.js';
+import { Machine } from '../web/js/vm/machine.js';
 
 let passed = 0;
 let failed = 0;

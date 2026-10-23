@@ -16,7 +16,10 @@ const i = process.argv.indexOf('--snap');
 const snap = i < 0 ? 'build/snap' : process.argv[i + 1];
 const mem = new Uint8Array(readFileSync(`${snap}/block${n}.mem`));
 const meta = JSON.parse(readFileSync(`${snap}/block${n}.json`, 'utf8'));
-const { m } = makePart(n, { ipt: 1e12 });
+const arg = (k) => { const j = process.argv.indexOf('--' + k); return j < 0 ? null : process.argv[j + 1]; };
+const left = arg('mem-init') ? new Uint8Array(readFileSync(arg('mem-init'))) : null;
+const sc = arg('init') ? readFileSync(arg('init')) : null;
+const { m } = makePart(n, { ipt: 1e12, left, screen: sc ? { pixels: sc.subarray(0, 64000), pal: sc.subarray(64000, 64768) } : null });
 const c = m.cpu;
 let steps = 0;
 while (steps < 5e7 && (c.read32(0x20) >>> 16) !== 0xf8b) { c.step(); m.tick(); steps++; }

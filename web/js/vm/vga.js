@@ -72,6 +72,8 @@ export class VGA {
     // scan-out and the panning shift respectively.
     this.layout = 'auto';
     this.chain4Override = false;
+    this.fastRetrace = false;
+    this.retraceFlip = 0;
     this.setMode(0x03);
   }
 
@@ -158,6 +160,10 @@ export class VGA {
         // Input status 1: bit 3 is the vertical retrace, bit 0 the display
         // enable (inverted).  Reading it also resets the attribute flip flop.
         this.attrFlip = 0;
+        if (this.fastRetrace) { // every read flips: retrace waits end at once (player mode)
+          this.retraceFlip ^= 1;
+          return this.retraceFlip ? 0x09 : 0x00;
+        }
         const t = this.clock % FRAME_TICKS;
         let v = 0;
         if (t >= FRAME_TICKS - RETRACE_TICKS) v |= 0x09;
@@ -260,8 +266,21 @@ export class VGA {
     }
   }
 
-  readVideo(offset) {
-    return this.pixels[offset & 0x3ffff];
+  /**
+   * A CPU read of `size` bytes at `offset` in A0000..AFFFF.  Chain 4 reads the
+   * flat pixel; planar read mode 0 reads the plane in the read map select
+   * register (gfx[4]) -- four pixels per plane byte, as writeVideo stores them.
+   */
+  readVideo(offset, size = 1) {
+    const chain4 = this.layout === 'chain4' || this.chain4Override ||
+      (this.layout !== 'planar' && (this.seq[4] & 0x08) !== 0);
+    let v = 0;
+    for (let i = 0; i < size; i++) {
+      const a = (offset + i) & 0xffff;
+      const byte = chain4 ? this.pixels[a] : this.pixels[((a << 2) + (this.gfx[4] & 3)) & 0x3ffff];
+      v |= byte << (8 * i);
+    }
+    return size === 4 ? v >>> 0 : v;
   }
 
   // ----------------------------------------------------------------- display

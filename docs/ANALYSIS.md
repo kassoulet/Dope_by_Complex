@@ -200,11 +200,11 @@ Part 1 was the part that could not be recovered by reading the code alone: its
 picture is a pre-shaded gradient strip the renderer copies with hand written
 inner loops, and the four map-mask passes, the 336 plane byte picture strip and
 the panning register only became clear from the frames.  `tools/vmsnap.py` +
-`tools/vm/` (the x86 and VGA classes) were built to run the original code
+`web/js/vm/` (the x86 and VGA classes) were built to run the original code
 against a snapshot and measure it; once the measurements were complete the part
 was **transcoded** into `web/js/part1.js`, which reproduces those frames from
 the demo's own data with no emulator (see `docs/RUNTIME.md`).  The emulator
-remains as verification rigging under `tools/vm/`.
+remains as verification rigging under `web/js/vm/`.
 
 Part 2 is captured (`build/ref_p2`) and its 
 frame and colour model is measured, but the part itself is not ported (see

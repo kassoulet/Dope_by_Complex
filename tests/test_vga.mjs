@@ -9,8 +9,8 @@
  * panning and the scan-out loop.
  */
 
-import { VGA, SCREEN_W, SCREEN_H } from '../tools/vm/vga.js';
-import { Machine } from '../tools/vm/machine.js';
+import { VGA, SCREEN_W, SCREEN_H } from '../web/js/vm/vga.js';
+import { Machine } from '../web/js/vm/machine.js';
 
 let passed = 0;
 let failed = 0;

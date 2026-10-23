@@ -16,7 +16,8 @@
 
 import { Mod } from "./mod.js";
 import { seekMod, renderBlock } from "./transport.js";
-import { renderLook, DEMO_END } from "./look.js";
+import { findBlocks } from "./rnc.js";
+import { EmuParts } from "./emuparts.js";
 import { Part1, W, H, counterAt, END_COUNTER, TICKS_PER_SECOND, COUNTS_PER_TICK } from "./part1.js";
 
 const $ = (id) => document.getElementById(id);
@@ -42,8 +43,10 @@ let audio = null;
 let node = null;
 let sr = 44100;
 let tickLeft = 0;
-let duration = originalMode ? PART1_SECONDS : DEMO_END; // the original exits to DOS at ~433 s
+let duration = originalMode ? PART1_SECONDS : 473; // replaced by the part lengths once DOPE.EXE is read
+let emu = null; // parts 2..7, run from the original code
 let started = false;
+let clockOn = false; // the clock only runs once DOPE.EXE, the module and the audio are ready
 let paused = false;
 let framesDone = 0; // song clock, in output frames
 let ctxMark = 0; // audio.currentTime when framesDone was last updated
@@ -70,6 +73,7 @@ window.addEventListener("error", (e) => { status.textContent = `JS error: ${e.me
 /* ------------------------------------------------------------------ clock */
 
 function now() {
+  if (!clockOn) return wallT; // still loading: the song has not started
   if (!node) return wallT + (paused || !started ? 0 : performance.now() / 1000 - wallMark);
   // audio frames are produced in 2048 frame blocks: extrapolate between them
   const extra = paused ? 0 : Math.min(2048 / sr, Math.max(0, audio.currentTime - ctxMark));
@@ -78,6 +82,7 @@ function now() {
 
 function seekTo(seconds) {
   seconds = Math.max(0, Math.min(duration - 0.05, seconds));
+  if (emu) emu.markSeek();
   if (mod) tickLeft = seekMod(mod, seconds, sr);
   framesDone = Math.round(seconds * sr);
   wallT = seconds;
@@ -151,11 +156,16 @@ async function start() {
   mod = new Mod(bytes, 44100);
 
   if (forcedScene === null) {
-    status.textContent = "reading part 1 out of DOPE.EXE...";
+    status.textContent = "reading DOPE.EXE...";
     try {
-      part = Part1.fromExecutable(await fetchBytes("../DOPE.EXE"));
+      const blocks = findBlocks(await fetchBytes("../DOPE.EXE")).map((b) => b.data);
+      part = new Part1(blocks[1]);
+      if (!originalMode) {
+        emu = await EmuParts.load(blocks, PART1_SECONDS);
+        duration = emu.end;
+      }
     } catch (err) {
-      console.warn("part 1 unavailable:", err);
+      console.warn("DOPE.EXE parts unavailable:", err);
     }
   }
   status.textContent = `DOPE.MOD - ${mod.channels} channels, ${mod.patternCount} patterns, ${mod.songLength} orders`;
@@ -170,6 +180,7 @@ async function start() {
     status.textContent += " (audio unavailable)";
   }
   wallMark = performance.now() / 1000;
+  clockOn = true;
   playBtn.disabled = false;
   playBtn.textContent = "❚❚ pause";
   requestAnimationFrame(frame);
@@ -197,11 +208,11 @@ function drawAt(t) {
       `  scroll ${4 * (counter >> 4)}  pan ${part.panPixels(counter)}`;
     return;
   }
-  const name = renderLook(pctx, t);
-  if (playing !== name) {
-    playing = name;
-    status.textContent = `look-alike (not a port): ${name}`;
-  }
+  if (!emu) return;
+  const k = emu.draw(t, pctx, !paused);
+  const s = emu.stats;
+  status.textContent = `original code, part ${k + 2} (block ${emu.parts[k].block}) run in a JS x86 -- ` +
+    (emu.seeking ? "seeking..." : `${s.mips.toFixed(1)} MIPS, tick ${emu.frame ? emu.frame.tick : 0} of ${emu.parts[k].ticks}`);
 }
 
 /* ---------------------------------------------------------------- controls */
@@ -258,7 +269,6 @@ window.__dope = {
 };
 
 // draw an attract frame straight away so the page is never blank
-renderLook(pctx, 40);
 updateTransport(0);
 
 if (stillSeconds !== null) {
@@ -267,7 +277,11 @@ if (stillSeconds !== null) {
     bytes = await fetchBytes("../DOPE.MOD");
     mod = new Mod(bytes, 44100);
     mod.reset(0);
-    if (forcedScene === null) part = Part1.fromExecutable(await fetchBytes("../DOPE.EXE"));
+    if (forcedScene === null) {
+      const blocks = findBlocks(await fetchBytes("../DOPE.EXE")).map((b) => b.data);
+      part = new Part1(blocks[1]);
+      if (stillSeconds >= PART1_SECONDS) emu = await EmuParts.load(blocks, PART1_SECONDS);
+    }
     drawAt(stillSeconds);
   });
 } else if (params.has("autostart")) {

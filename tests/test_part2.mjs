@@ -20,7 +20,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { Part2, PALETTE_ENTRIES, FADE_STEP, FADE_TOP, FADE_FRAMES } from '../web/js/part2.js';
-import { Machine } from '../tools/vm/machine.js';
+import { Machine } from '../web/js/vm/machine.js';
 import { loadImage, boot, PART_SEGMENT, ENTRY, COUNTER, DATA_SEGMENT } from '../tools/part2run.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
