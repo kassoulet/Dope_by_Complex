@@ -37,7 +37,7 @@
  * wait), so counters 1..438 can be rendered in seconds; the best of those
  * matches a captured frame in 35,180 of 64,000 pixels, with the credit rows
  * almost exact and the discs still differing.  That rig is verification, not
- * this page: the picture here is still the look-alike in look.js.
+ * this page: the page runs the original code (partvm.js) instead.
  *
  * Everything below is read out of the part's own block, so the values are the
  * original's, not a guess.  `tests/test_part2.mjs` checks them against the
