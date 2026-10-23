@@ -26,7 +26,7 @@ import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from vmsnap import Guest  # noqa: E402  (same directory, shares the guest reader)
+from vmsnap import Guest, PARTS  # noqa: E402  (same directory, shares the guest reader)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DBOX = os.environ.get('DBOX', '/tmp/dbox/root/usr/bin/dosbox-x')
@@ -115,6 +115,8 @@ def main():
     ap.add_argument('--start', type=float, default=0.0, help='wait before the first grab')
     ap.add_argument('--out', default=os.path.join(ROOT, 'build', 'ref'))
     ap.add_argument('--display', default=':78')
+    ap.add_argument('--part', type=int, default=1, choices=sorted(PARTS),
+                    help='which part --tag-counters follows (vmsnap.PARTS)')
     ap.add_argument('--tag-counters', action='store_true',
                     help=('freeze the demo around each grab and record its frame '
                           'counter, so a VM frame can be matched to this picture'))
@@ -163,10 +165,17 @@ def main():
             return 1
         guest = None
         base = seg = None
+        spec = PARTS[args.part]
+        isr = bytes.fromhex(spec['sig'])
+        isr_offset = spec['isr'] - 0x100
+        cnt_off, cnt_size = spec['counter']
         if args.tag_counters:
             guest = Guest(proc.pid)
-            for _ in range(40):
-                base, seg, _ = guest.find_base()
+            for _ in range(120):
+                base, seg, _ = guest.find_base(isr, isr_offset)
+                if base is not None:
+                    break
+                time.sleep(0.5)
                 if base is not None:
                     break
                 time.sleep(0.5)
@@ -185,9 +194,9 @@ def main():
                 # belong to the same instant, then grab the frozen screen.
                 os.kill(proc.pid, signal.SIGSTOP)
                 try:
-                    before = guest.counter(base, seg)
+                    before = guest.counter(base, seg, cnt_off, cnt_size)
                     grab(args.display, geom, path)
-                    after = guest.counter(base, seg)
+                    after = guest.counter(base, seg, cnt_off, cnt_size)
                 finally:
                     os.kill(proc.pid, signal.SIGCONT)
                 with open(path[:-4] + '.json', 'w') as f:

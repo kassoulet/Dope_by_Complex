@@ -293,8 +293,8 @@ export class CPU {
     const m = MASK[size];
     const sign = SIGN[size];
     let res = v & m;
-    if ((count & 0xff) === 0) return res;
-    let c = count & 0xff;
+    let c = count & 0x1f; // the 386 masks every shift count to 5 bits
+    if (c === 0) return res;
     switch (op) {
       case 4: // shl / sal
         for (let i = 0; i < c; i++) {
@@ -358,10 +358,12 @@ export class CPU {
       default:
         throw new Unsupported('shift' + op, this);
     }
-    this.zf = res === 0 ? 1 : 0;
-    this.sf = (res & sign) ? 1 : 0;
-    this.pf = PARITY[res & 0xff];
-    if (op === 0 || op === 1 || op === 2 || op === 3) this.af = 0;
+    // rotates change CF and OF only; shifts also set ZF/SF/PF
+    if (op >= 4) {
+      this.zf = res === 0 ? 1 : 0;
+      this.sf = (res & sign) ? 1 : 0;
+      this.pf = PARITY[res & 0xff];
+    }
     return res;
   }
 
@@ -1334,8 +1336,8 @@ export class CPU {
         this.cf = (v >> (this.getR(r, sz) & (sz * 8 - 1))) & 1;
         return;
       }
-      case 0xa4: case 0xa5: { // shld
-        const size = b === 0xa4 ? 1 : sz;
+      case 0xa4: case 0xa5: { // shld (0xa4: count imm8, 0xa5: count CL; both use the operand size)
+        const size = sz;
         const r = this.modrm();
         const dst = this.rmRead(size);
         const src = this.getR(r, size);
@@ -1346,7 +1348,7 @@ export class CPU {
           this.cf = (res & SIGN[size]) ? 1 : 0;
           res = ((res << 1) | ((src >> (bits - 1 - i)) & 1)) & MASK[size];
         }
-        if (count) this.rmWrite(size, res);
+        if (count) { const cf = this.cf; this.logic(res, size); this.cf = cf; this.rmWrite(size, res); }
         return;
       }
       case 0xab: case 0xbb: case 0xb3: { // bts / btc / btr
@@ -1361,8 +1363,8 @@ export class CPU {
         this.rmWrite(sz, nv);
         return;
       }
-      case 0xac: case 0xad: { // shrd
-        const size = b === 0xac ? 1 : sz;
+      case 0xac: case 0xad: { // shrd (same: 0xac is the imm8 form, not a byte operation)
+        const size = sz;
         const r = this.modrm();
         const dst = this.rmRead(size);
         const src = this.getR(r, size);
@@ -1372,7 +1374,7 @@ export class CPU {
           this.cf = res & 1;
           res = ((res >>> 1) | (((src >> i) & 1) << (size * 8 - 1))) & MASK[size];
         }
-        if (count) this.rmWrite(size, res);
+        if (count) { const cf = this.cf; this.logic(res, size); this.cf = cf; this.rmWrite(size, res); }
         return;
       }
       case 0xa8: this.push(this.sreg[SEG_GS], 2); return;
@@ -1381,9 +1383,10 @@ export class CPU {
         const r = this.modrm();
         const a = this.getR(r, sz);
         const bv = this.rmRead(sz);
-        const res = sz === 2 ? (((a << 16) >> 16) * ((bv << 16) >> 16)) | 0 : (a | 0) * (bv | 0);
+        const res = sz === 2 ? Math.imul((a << 16) >> 16, (bv << 16) >> 16) : Math.imul(a | 0, bv | 0);
         this.setR(r, sz, res);
-        this.cf = this.of = 0;
+        const full = sz === 2 ? ((a << 16) >> 16) * ((bv << 16) >> 16) : (a | 0) * (bv | 0);
+        this.cf = this.of = (full === (sz === 2 ? (full << 16) >> 16 : full | 0)) ? 0 : 1;
         return;
       }
       case 0xb0: case 0xb1: { // cmpxchg

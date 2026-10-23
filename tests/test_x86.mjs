@@ -88,5 +88,31 @@ const idiv32 = (lo, hi, divisor) => run([
   eq('16 bit signed idiv: remainder', m.cpu.r[2] & 0xffff, 0xff9c);
 }
 
+
+/* ---- bugs found by tools/diffcheck.py (the rig against Unicorn), part 2's span loop */
+
+function runN(code, n) {
+  const m = new Machine();
+  m.mem.set(code, 0x1000);
+  m.cpu.reset();
+  for (let i = 0; i < 6; i++) m.cpu.sreg[i] = 0x0100;
+  m.cpu.ip = 0;
+  for (let i = 0; i < n; i++) m.cpu.step();
+  return m.cpu;
+}
+{
+  // mov ebx,0x0000004e ; mov ecx,0x41604e60 ; shld ebx,ecx,9   (the texture loop's coordinate pack)
+  const c = runN([0x66, 0xbb, 0x4e, 0, 0, 0, 0x66, 0xb9, 0x60, 0x4e, 0x60, 0x41, 0x66, 0x0f, 0xa4, 0xcb, 0x09], 3);
+  eq('shld ebx,ecx,imm8 works on 32 bits (0F A4 is not a byte op)', c.r[3] >>> 0, 0x9c82);
+  // mov eax,0x80000001 ; shrd eax,edx(=0xf),4 -> top nibble shifts in
+  const d = runN([0x66, 0xb8, 1, 0, 0, 0x80, 0x66, 0xba, 0x0f, 0, 0, 0, 0x66, 0x0f, 0xac, 0xd0, 0x04], 3);
+  eq('shrd eax,edx,imm8 works on 32 bits', d.r[0] >>> 0, 0xf8000000);
+  // stc ; mov zf via xor ax,ax ; rol ebp,16 must leave ZF alone (rotates only touch CF/OF)
+  const e = runN([0x31, 0xc0, 0x66, 0xc1, 0xc5, 0x10], 2);
+  eq('rol leaves ZF set by an earlier xor', e.zf, 1);
+  // imul sets CF/OF when the product does not fit
+  const f = runN([0x66, 0xb8, 0, 0, 0, 0x40, 0x66, 0xbb, 4, 0, 0, 0, 0x66, 0x0f, 0xaf, 0xc3], 3);
+  eq('imul r32,r/m32 sets CF on overflow', f.cf, 1);
+}
 console.log(`\n${passed}/${passed + failed} passed`);
 process.exit(failed ? 1 : 0);

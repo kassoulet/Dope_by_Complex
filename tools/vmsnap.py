@@ -199,6 +199,9 @@ def main():
     ap.add_argument('--display', default=':77')
     ap.add_argument('--part', type=int, default=1, choices=sorted(PARTS),
                     help='which demo part is running when the snapshot is taken')
+    ap.add_argument('--stop-at', type=int, default=0,
+                    help='freeze as soon as the counter reaches this value, so the snapshot '
+                         'is reproducible (needs the part to be seen at a smaller counter)')
     ap.add_argument('--max-counter', type=int, default=128,
                     help='snapshot only while the part is early in its run')
     args = ap.parse_args()
@@ -265,7 +268,10 @@ def main():
         if base is None:
             print('no running part found (is the demo still in the loader?)')
             return 1
-        if cnt >= args.max_counter:
+        while args.stop_at and cnt < args.stop_at:
+            time.sleep(0.0005)
+            cnt = guest.counter(base, seg, counter_offset, counter_size)
+        if cnt >= args.max_counter and not args.stop_at:
             print('warning: counter is already %d, the part is well into its run;'
                   ' use a smaller --wait for a fresher snapshot' % cnt)
 

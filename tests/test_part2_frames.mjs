@@ -62,8 +62,8 @@ ok('every frame has the part\'s picture', frames.every((f) => f.pixels.some((v) 
 // Pictures, not just counters: the first frame and a later one are pinned so a
 // changed instruction, a changed relocation or a different timer convention
 // shows up as a digest change.
-eq('frame 1 digest', fnv1a(frames[0].pixels), '504aae9e');
-eq('frame 70 digest', fnv1a(frames[69].pixels), '5e304724');
+eq('frame 1 digest', fnv1a(frames[0].pixels), '9438d9ec');
+eq('frame 70 digest', fnv1a(frames[69].pixels), '8034fdcd');
 ok('the picture changes from frame to frame', fnv1a(frames[0].pixels) !== fnv1a(frames[1].pixels));
 ok('the palette is the part\'s base palette (this scene does not fade in)',
   fnv1a(frames[0].palette) === fnv1a(new Part2(block).palette(0x100)),
