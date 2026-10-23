@@ -10,7 +10,7 @@
 <nav><a href="index.html"><b>DOPE, reversed</b></a><a href="index.html#process">the process</a><a href="writeup.html">asm write-up</a></nav>
 <main>
 <h1>The best bits of DOPE's assembly</h1>
-<p class="lead">Eight snippets, disassembled with <code>ndisasm -b16</code> from the unpacked blocks. Addresses are offsets inside the unpacked block. The listings are the real bytes; the explanations are my reading of them, and I say where that is a guess.</p>
+<p class="lead">Ten snippets, disassembled with <code>ndisasm -b16</code> from the unpacked blocks. Addresses are offsets inside the unpacked block. The listings are the real bytes; the explanations are my reading of them, and I say where that is a guess.</p>
 <p class="note">Part 1 is block 1; the texture loop and projection are in block 2. Block 2's own banner says it all: <i>"DON'T TELL ME IT'S NOT OPTIMIZED OR 'REAL' BECAUSE I KNOW THAT ALREADY! WHY OPTIMIZE ANYTHING FOR PENTIUM 100 MHZ?"</i> It is optimised anyway.</p>
 
 <h2>1. Wait for the retrace edge, not for "a" retrace</h2>
@@ -173,6 +173,36 @@
 <li><b>Count the entries before believing in mid-frame palette tricks.</b> These frames hold 70..107 colours, which a 192 entry part 1 palette cannot explain but a 256 entry palette explains trivially. Every colour of all ten reference frames comes out of the base palette at ramp step 0x100, which is what retired the earlier "per line palette" reading (<code>tests/test_part2.mjs</code>).</li>
 <li><b>The fade is a table lookup on the palette, not on the picture.</b> 768 bytes of <code>out</code> per tick is cheap on a 486; retouching the screen would not have been.</li>
 </ul>
+
+<h2>9. Sorting polygons by splitting the list at both ends of one buffer</h2>
+<pre><code>369A  mov edx,0x40000         <span class="cm">; the flag bit that decides the side</span>
+36A0  mov si,0x0              <span class="cm">; read from the front of the input</span>
+36A3  mov di,0x1450           <span class="cm">; "low" list grows upward from here</span>
+36A6  mov bx,[cs:0x1906]      <span class="cm">; "high" list grows downward from the end</span>
+36AB  jmp 0x36b2
+36AD  mov [di],eax            <span class="cm">; flag clear: append to the low list</span>
+36B0  add di,bp               <span class="cm">; bp = 4</span>
+36B2  mov eax,[si]
+36B5  test ax,ax
+36B7  js  0x36d0              <span class="cm">; a negative low word ends the list</span>
+36B9  add si,bp
+36BB  test edx,eax
+36BE  jz  0x36ad
+36C0  mov [bx],eax            <span class="cm">; flag set: push on the high list</span>
+36C3  sub bx,bp
+36C5  jmp 0x36b2
+...
+36DF  mov eax,[di]            <span class="cm">; then copy the low list back, and the high list</span>
+36F0  mov eax,[bx]            <span class="cm">; after it, walking it backwards</span></code></pre>
+<p>One pass over a list of 32-bit records (<code>depth &lt;&lt; 16 | polygon index</code>) puts the records with a flag bit set at one end of a scratch buffer and the others at the other end, then writes both back, the second one in reverse. That is a one-bit radix partition done with two stacks that grow towards each other, no counters and no second buffer. The terminator is any record whose low word is negative, so the loop needs no count either. It has a limit nobody wrote down: the scratch area starts 0xFA0 bytes after the input, so a list of more than 1000 records overwrites its own tail. I found out because a seek that fed part 6 its timer interrupts too fast made the frame in progress see a scene with 1,183 visible faces, and the sorter then walked off the end of memory for ever.</p>
+
+<h2>10. Patching the immediates of your own loop</h2>
+<pre><code>2800  add dword [cs:0x2650],0x0    <span class="cm">; imm32 filled in at run time</span>
+293F  add ebp,0x0                   <span class="cm">; "</span>
+2946  adc edx,0x0                   <span class="cm">; "</span>
+28E6  mov bl,ch                     <span class="cm">; ... the span loop at 0x27c6 / 0x28e6 has</span>
+2905  add ecx,[cs:0x26e8]           <span class="cm">; the same deltas as memory operands</span></code></pre>
+<p>The per-polygon edge and texture gradients are not kept in registers or variables: before a polygon is drawn the setup writes them straight into the <b>immediate fields</b> of the <code>add</code> instructions that will consume them (the zeros in the file are placeholders). Three or four such fields exist per part, and the polygon filler runs thousands of times per frame. It saves a register or a memory read per use on a CPU with eight registers, and costs a pipeline flush on Pentiums; the authors accept that, and wrote a second loop at <code>0x28e6</code> with the deltas as <code>[cs:...]</code> operands for the clipped case. For the recompiler on this page it is the one thing that breaks the usual assumption that code is constant: it marks every translated byte, drops a block when a store hits it, and after the first hit on an immediate reads that field from memory when the block runs. Without that, part 2 recompiled its span loop 112,000 times in 3 seconds.</p>
 
 <h2>Bonus: projection with the rounding folded into the centre offset</h2>
 <pre><code>1E04  sar eax,3
