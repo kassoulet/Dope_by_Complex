@@ -78,6 +78,11 @@ export const OFF = {
   list: 0x0000, scratch: 0x0fa0, tex: 0x1f40, env: 0x2ee0, sy: 0x3e80, sx: 0x3e82, sz: 0x4e20,
   f0: 0x5dc0, f1: 0x6590, f2: 0x6d60,
 };
+/** The same engine in block 7: other limits (2,000 faces), other offsets, same code. */
+export const OFF7 = {
+  list: 0x0000, scratch: 0x1f40, tex: 0x3e80, env: 0x55f0, sy: 0x6d60, sx: 0x6d62, sz: 0x84d0,
+  f0: 0x9c40, f1: 0xabe0, f2: 0xbb80,
+};
 export const MAX_FACES = 1000;
 export const MAX_VERTS = 1000;
 
@@ -121,7 +126,7 @@ export function mulDiv(a, b, d) {
  * 3/4 as tall as it is wide in these units: a 4:3 screen on 320 x 200 pixels
  * (the `adc ax,0xa0` / `adc ax,0x64` add the centre and round at once).
  */
-export function transformObject(gs, geo, M, o) {
+export function transformObject(gs, geo, M, o, L = OFF) {
   const nv = rd16(geo, 0);
   if (nv === 0) return;
   const posAt = rd16(geo, 4), nrmAt = rd16(geo, 8);
@@ -143,19 +148,19 @@ export function transformObject(gs, geo, M, o) {
     let X = (imul(M[0], px) + imul(M[1], py) + imul(M[2], pz)) | 0;
     let Y = (imul(M[3], px) + imul(M[4], py) + imul(M[5], pz)) | 0;
     const Z = (imul(M[6], px) + imul(M[7], py) + imul(M[8], pz)) | 0;
-    wr32(gs, OFF.env + slot, env);
-    wr32(gs, OFF.tex + slot, tex);
+    wr32(gs, L.env + slot, env);
+    wr32(gs, L.tex + slot, tex);
     X = (X + (o.pos[0] << 8)) | 0;
     Y = (Y + (o.pos[1] << 8)) | 0;
-    wr16(gs, OFF.sz + slot, (((imul(Z >> 16, o.focal) >> 14) + 0x4000) & 0xffff));
+    wr16(gs, L.sz + slot, (((imul(Z >> 16, o.focal) >> 14) + 0x4000) & 0xffff));
     const depth = (Z - (o.pos[2] << 8)) | 0;
     // x: (X * focal / depth) >> 3, plus the bit shifted out (adc), plus the centre 0xa0
     let q = mulDiv(X, o.focal, depth);
-    wr16(gs, OFF.sx + slot, ((q >> 3) + ((q >> 2) & 1) + 0xa0) & 0xffff);
+    wr16(gs, L.sx + slot, ((q >> 3) + ((q >> 2) & 1) + 0xa0) & 0xffff);
     // y: (3 * (Y * focal / depth)) >> 5, rounded the same way, centre 0x64
     q = mulDiv(Y, o.focal, depth);
     q = (q + q * 2) | 0;
-    wr16(gs, OFF.sy + slot, ((q >> 5) + ((q >> 4) & 1) + 0x64) & 0xffff);
+    wr16(gs, L.sy + slot, ((q >> 5) + ((q >> 4) & 1) + 0x64) & 0xffff);
   }
 }
 
@@ -175,13 +180,13 @@ export function transformObject(gs, geo, M, o) {
  * `o` in: base (vertex index of the object's first vertex), count (faces so far),
  * cull, selA, selB.  `o.count` and `o.base` are advanced.
  */
-export function buildFaces(gs, geo, o) {
+export function buildFaces(gs, geo, o, L = OFF) {
   const nf = rd16(geo, 2);
   if (nf === 0) return;
   const facesAt = rd16(geo, 6);
   const dx = (o.base << 2) & 0xffff;
   let si = o.count << 2, bp = o.count << 1;
-  const x = (v) => rds16(gs, OFF.sx + v), y = (v) => rds16(gs, OFF.sy + v);
+  const x = (v) => rds16(gs, L.sx + v), y = (v) => rds16(gs, L.sy + v);
   for (let i = 0; i < nf; i++) {
     const f = facesAt + 8 * i;
     const v0 = (rd16(geo, f + 2) + dx) & 0xffff, v1 = (rd16(geo, f + 4) + dx) & 0xffff, v2 = (rd16(geo, f + 6) + dx) & 0xffff;
@@ -191,12 +196,12 @@ export function buildFaces(gs, geo, o) {
     ax = (ax - cx) & 0xffff;
     const negative = (ax & 0x8000) !== 0;
     if (o.cull === 0 ? negative : !negative) continue;
-    const z = (rd16(gs, OFF.sz + v0) + rd16(gs, OFF.sz + v1) + rd16(gs, OFF.sz + v2)) & 0xffff;
+    const z = (rd16(gs, L.sz + v0) + rd16(gs, L.sz + v1) + rd16(gs, L.sz + v2)) & 0xffff;
     const attr = rd16(geo, f);
-    wr16(gs, OFF.f0 + bp, v0);
-    wr16(gs, OFF.f1 + bp, v1 | (((attr >> 8) + o.selB) & 3));
-    wr16(gs, OFF.f2 + bp, v2 | ((attr + o.selA) & 3));
-    wr32(gs, OFF.list + si, ((z << 16) | (si >> 2)) | 0);
+    wr16(gs, L.f0 + bp, v0);
+    wr16(gs, L.f1 + bp, v1 | (((attr >> 8) + o.selB) & 3));
+    wr16(gs, L.f2 + bp, v2 | ((attr + o.selA) & 3));
+    wr32(gs, L.list + si, ((z << 16) | (si >> 2)) | 0);
     si += 4;
     bp += 2;
   }
@@ -213,11 +218,11 @@ export function buildFaces(gs, geo, o) {
  * arrived: a stable partition with no counters, ended by a negative low word.
  * (The scratch area starts 1000 entries in: the engine's hard limit.)
  */
-export function radixSort(gs, count) {
-  let end = OFF.scratch + 4 * count; // [0x1978]: where the "bit set" side starts
+export function radixSort(gs, count, L = OFF) {
+  let end = L.scratch + 4 * count; // [0x1978]: where the "bit set" side starts
   for (let k = 21; k < 32; k++) {
     const bit = (1 << k) >>> 0;
-    let di = OFF.scratch, bx = end, si = 0;
+    let di = L.scratch, bx = end, si = 0;
     for (;;) {
       const e = rd32(gs, si);
       if ((e & 0xffff) >= 0x8000) break; // the terminator: the low word is negative
@@ -226,7 +231,7 @@ export function radixSort(gs, count) {
     }
     wr16(gs, di, 0xffff); // mov word [di],0xffff
     si = 0;
-    for (let s = OFF.scratch; ; s += 4) { // the low side
+    for (let s = L.scratch; ; s += 4) { // the low side
       const e = rd32(gs, s);
       if ((e & 0xffff) >= 0x8000) break;
       wr32(gs, si, e); si += 4;

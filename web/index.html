@@ -49,7 +49,8 @@
 <tr><td>1 (logo)</td><td><code>part1.js</code></td><td>11 of 15 captured frames byte-identical</td><td>README</td></tr>
 <tr><td>4 (fire, fractal scape, checker)</td><td><code>ports/part4.js</code>, 430 lines</td><td>160 routine checks; 3,720 frames in lock step</td><td><a href="port4.html">part 4</a></td></tr>
 <tr><td>3 (7800 phong polys)</td><td><code>ports/engine3d.js</code>, <code>raster3.js</code>, <code>part3.js</code>, 730 lines</td><td>engine routines at 7 moments; 1,812 frames in lock step</td><td><a href="port3.html">part 3</a></td></tr>
-<tr><td>2, 5, 6, 7 (3D)</td><td>run from the original code for now (same engine, other addresses)</td><td></td><td></td></tr>
+<tr><td>7 (1995 world domination)</td><td><code>ports/part7.js</code> on the same engine, 110 lines</td><td>1,053 frames in lock step, the animated lookup buffer included</td><td><a href="port7.html">part 7</a></td></tr>
+<tr><td>2, 5, 6 (3D)</td><td>run from the original code for now (same engine, other addresses)</td><td></td><td></td></tr>
 </table>
 
 <h2 id="process">The process</h2>
@@ -72,7 +73,8 @@
 <tr><td>part 1 (first ~39 s)</td><td>transcoded from the original data, pixel-exact on 11/15 reference frames</td></tr>
 <tr><td>part 4</td><td><b>ported to JavaScript</b> (<code>ports/part4.js</code>), identical to the original in a frame by frame lock step</td></tr>
 <tr><td>part 3</td><td><b>ported to JavaScript</b> (<code>ports/part3.js</code>, with the 3D engine), identical to the original in a frame by frame lock step</td></tr>
-<tr><td>parts 2, 5, 6, 7</td><td><b>the original code, emulated.</b> Not a port of the effects to JavaScript: the 1995 instructions run in a JS x86. Pictures pinned by <code>tests/test_partvm.mjs</code>; the interpreter agrees with Unicorn on the instruction streams checked (1.5 M instructions of the texture loop, 0.6 M of part 6's start); the recompiler agrees with the interpreter over 15 M instructions of every part</td></tr>
+<tr><td>part 7</td><td><b>ported to JavaScript</b> (<code>ports/part7.js</code>), identical to the original in a frame by frame lock step</td></tr>
+<tr><td>parts 2, 5, 6</td><td><b>the original code, emulated.</b> Not a port of the effects to JavaScript: the 1995 instructions run in a JS x86. Pictures pinned by <code>tests/test_partvm.mjs</code>; the interpreter agrees with Unicorn on the instruction streams checked (1.5 M instructions of the texture loop, 0.6 M of part 6's start); the recompiler agrees with the interpreter over 15 M instructions of every part</td></tr>
 <tr><td>exactness</td><td>not pixel-for-pixel against DOSBox. The original is not deterministic in the counter (which credit band is up at counter 127 differed between two DOSBox runs), so there is no single frame to match; compared by eye, shapes, lighting and titles agree</td></tr>
 <tr><td>speed</td><td>the parts' animation runs at its original speed (it hangs on the 70 Hz timer); how many frames the recompiler can draw per tick depends on the browser and machine, see the MIPS in the status line</td></tr>
 <tr><td>music</td><td>the original module; own replayer, not bit-exact to the GUS</td></tr>

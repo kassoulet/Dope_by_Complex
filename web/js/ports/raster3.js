@@ -43,7 +43,16 @@ const xchg16 = (a, b) => [((a & 0xffff0000) | (b & 0xffff)) | 0, ((b & 0xffff000
 const idiv = (n, d) => Math.trunc(n / d); // truncates toward zero, as idiv does
 
 /** where the original keeps the polygon routine's variables (offsets in its cs) */
-export const V = {
+/** and block 7's: the same code assembled a few bytes earlier, so every address moved */
+export const V7 = {
+  accT: 0x1fc8, accU: 0x1fcc, rows: 0x1fd0, gradT: 0x2068, gradU: 0x2071, rowU: 0x2086, rowT: 0x2090,
+  patchL: 0x2097, patchR: 0x209e, patchL2: 0x21c2, patchR2: 0x21c9,
+  p0: 0x27c8, p1: 0x27cc, p2: 0x27d0, s01: 0x27d4, s02: 0x27d8, s12: 0x27dc, edgeL: 0x27e0, edgeR: 0x27e4,
+  dy01: 0x27e8, dy02: 0x27ea, dy12: 0x27ec, u0: 0x27ee, u1: 0x27f2, u2: 0x27f6, t0: 0x27fa, t1: 0x27fe, t2: 0x2802,
+  flat: 0x2806, clip: 0x2808, rowBase: 0x280a,
+};
+
+export const V3 = {
   accT: 0x1fe4, accU: 0x1fe8, rows: 0x1fec, // the two accumulators, scanlines left
   gradT: 0x2078, gradU: 0x2081, // per pixel gradients: a dword each, lanes lo, hi
   rowU: 0x2096, rowT: 0x20a0, // per scanline slopes
@@ -66,7 +75,7 @@ export class Rasteriser {
    * @param fb   the frame buffer (320 x 200 and the slack the unclipped loop may write)
    * @param rows Uint16Array(256): the map byte -> row offset in `ds` (the words at cs:0..0x1ff)
    */
-  constructor({ cs, gs, OFF, fb, rows }) { Object.assign(this, { cs, gs, OFF, fb, rows }); }
+  constructor({ cs, gs, OFF, fb, rows, V = V3 }) { Object.assign(this, { cs, gs, OFF, fb, rows, V }); }
 
   w(o) { return this.cs[o] | (this.cs[o + 1] << 8); }
   sw(o) { return s16(this.w(o)); }
@@ -84,7 +93,7 @@ export class Rasteriser {
    * `ds` is the lookup segment (a Uint8Array of 64 KB), `fs` the 128 x 128 map.
    */
   polygon(si, di, bp, ds, fs) {
-    const OFF = this.OFF;
+    const OFF = this.OFF, V = this.V;
     let eax = this.gd(OFF.sy + si), ebx = this.gd(OFF.sy + di), ecx = this.gd(OFF.sy + bp);
     // all three corners off to the right?  cmp / sbb, with the original's reuse of edx
     let edx = 0x1400000;
@@ -229,7 +238,7 @@ export class Rasteriser {
    * (before the original's bias and rotation, which happen here too).
    */
   scanlines(count, esi, edi, ds, fs) {
-    const fb = this.fb, rows = this.rows;
+    const fb = this.fb, rows = this.rows, V = this.V;
     this.setW(V.rows, count);
     esi = (esi + 0x1400000) | 0; // 320 added to the address field: one row down per step
     edi = (edi + 0x1400000) | 0;

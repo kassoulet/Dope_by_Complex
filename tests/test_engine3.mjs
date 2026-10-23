@@ -139,7 +139,7 @@ for (const t of ticks) {
   }
 }
 // 0x2311: the rasteriser, polygon by polygon, in the order the frame draws them
-import { Rasteriser, V } from '../web/js/ports/raster3.js';
+import { Rasteriser, V3 as V } from '../web/js/ports/raster3.js';
 for (const t of ticks) {
   const r = runPart(3, t);
   console.log(`-- block 3 rasteriser after ${t} ticks`);

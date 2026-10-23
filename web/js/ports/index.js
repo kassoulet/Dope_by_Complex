@@ -7,10 +7,12 @@
 import { loadImage } from '../partvm.js';
 import { Part3 } from './part3.js';
 import { Part4 } from './part4.js';
+import { Part7 } from './part7.js';
 
 const PORTS = {
   3: Part3,
   4: Part4,
+  7: Part7,
 };
 
 export const hasPort = (block) => block in PORTS;
