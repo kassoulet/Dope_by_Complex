@@ -175,7 +175,8 @@
 </ul>
 
 <h2>9. Sorting polygons by splitting the list at both ends of one buffer</h2>
-<pre><code>369A  mov edx,0x40000         <span class="cm">; the flag bit that decides the side</span>
+<pre><code><span class="cm">; block 2, 0x369a</span>
+369A  mov edx,0x40000         <span class="cm">; the flag bit that decides the side</span>
 36A0  mov si,0x0              <span class="cm">; read from the front of the input</span>
 36A3  mov di,0x1450           <span class="cm">; "low" list grows upward from here</span>
 36A6  mov bx,[cs:0x1906]      <span class="cm">; "high" list grows downward from the end</span>
@@ -194,7 +195,7 @@
 ...
 36DF  mov eax,[di]            <span class="cm">; then copy the low list back, and the high list</span>
 36F0  mov eax,[bx]            <span class="cm">; after it, walking it backwards</span></code></pre>
-<p>One pass over a list of 32-bit records (<code>depth &lt;&lt; 16 | polygon index</code>) puts the records with a flag bit set at one end of a scratch buffer and the others at the other end, then writes both back, the second one in reverse. That is a one-bit radix partition done with two stacks that grow towards each other, no counters and no second buffer. The terminator is any record whose low word is negative, so the loop needs no count either. It has a limit nobody wrote down: the scratch area starts 0xFA0 bytes after the input, so a list of more than 1000 records overwrites its own tail. I found out because a seek that fed part 6 its timer interrupts too fast made the frame in progress see a scene with 1,183 visible faces, and the sorter then walked off the end of memory for ever.</p>
+<p>One pass over a list of 32-bit records (<code>depth &lt;&lt; 16 | polygon index</code>) puts the records with a flag bit set at one end of a scratch buffer and the others at the other end, then writes both back, the second one in reverse. That is a one-bit radix partition done with two stacks that grow towards each other, no counters and no second buffer. The terminator is any record whose low word is negative, so the loop needs no count either. It has a limit nobody wrote down. In part 6's copy of the routine (block <code>0x2dea</code>) the input starts at <code>0x3200</code> and the scratch area at <code>0x41a0</code>, 1000 records further, so a longer list overwrites its own tail. I found out because a seek that fed part 6 its timer interrupts too fast made the frame in progress see a scene with 1,183 visible faces, and the sorter then walked off the end of memory for ever.</p>
 
 <h2>10. Patching the immediates of your own loop</h2>
 <pre><code>2800  add dword [cs:0x2650],0x0    <span class="cm">; imm32 filled in at run time</span>
