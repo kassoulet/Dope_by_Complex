@@ -7,10 +7,10 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<nav><a href="index.html"><b>DOPE, reversed</b></a><a href="#original">the original</a><a href="#process">the process</a><a href="#status-section">what is real</a><a href="writeup.html">asm write-up</a></nav>
+<nav><a href="index.html"><b>DOPE, reversed</b></a><a href="#original">the original</a><a href="#how">how it plays</a><a href="#process">the process</a><a href="#status-section">what is real</a><a href="writeup.html">asm write-up</a></nav>
 <main>
 <h1>DOPE by Complex (The Gathering 1995)</h1>
-<p class="lead">A 1995 MS-DOS demo, taken apart and put back together in JavaScript. Part 1 is read out of the original <code>DOPE.EXE</code>; the music is the original 28-channel module.</p>
+<p class="lead">A 1995 MS-DOS demo, taken apart and put back together in JavaScript. Part 1 is read out of the original <code>DOPE.EXE</code>, parts 2 to 7 run the original machine code in a JS x86, and the music is the original 28-channel module.</p>
 
 <div id="player">
   <canvas id="screen" width="320" height="200"></canvas>
@@ -33,14 +33,24 @@
 <h3>Aspect ratio</h3>
 <p>The demo runs in VGA mode 13h: <b>320×200 pixels</b> on a monitor that was <b>4:3</b>. Pixels were therefore 1.2× taller than wide. The screenshots above are 320×200 and are shown at 4:3 here; the player does the same with CSS (<code>aspect-ratio: 4/3</code>) and nearest-neighbour scaling. The button toggles to the raw 16:10 shape if you want to see the difference.</p>
 
+<h2 id="how">How it plays here</h2>
+<p><b>Part 1</b> (the first 39 s, the "COMPLEX" logo) is <i>transcoded</i>: its picture and palette tables are read out of the unpacked block and the frames are written directly (pixel-exact, no emulator). <b>Parts 2 to 7</b> (credits, "7800 PHONG polys", "FIRE clouds / FRACTAL scape", "ENV mapping", "SHADOW volume / material MORPH", "LIGHT sources") are the original <b>machine code</b>: the page unpacks the blocks out of <code>DOPE.EXE</code> and runs them in a 16/32-bit real-mode <b>x86 interpreter written in JavaScript</b> (<code>web/js/vm/</code>), inside a Web Worker, with a model of the VGA card behind it. Nothing of the effects is reimplemented, so the pictures are the demo's own.</p>
+<ol>
+<li><b>The loader.</b> Each part is mapped at segment <code>0xf8b</code>, 23-28 words are relocated (<code>+0xf7b</code>), a few parts get a far <code>init</code> call first, then <code>main</code> runs. The relocation lists are not in the file as far as I could find; they were <i>measured</i> by diffing a DOSBox-X memory snapshot of every part at its start against its block (<code>tools/blocksnap.py</code>, <code>tools/relocdiff.py</code>, data in <code>web/data/parts.json</code>).</li>
+<li><b>The clock.</b> A part's whole animation hangs on its own INT 8 handler at the monitor's 70 Hz. The page raises that interrupt from the <b>audio clock</b> (70.086 per second), so the animation keeps the original's speed whatever the interpreter manages. Each part lasts a fixed number of ticks (measured by running it to its <code>int 21h/4Ch</code>: 8200, 3665, 7443, 4557, 4063, 2494), which makes the whole demo 7:53.</li>
+<li><b>Pause and seek.</b> Pause stops the interrupts and the interpreter. Seek restarts the part at its start (on the screen the previous part left, three small assets, <code>web/data/handoff*.z</code>) and calls the interrupt fast, about 1500 instructions per tick, until the part's own counters have caught up; a minute into a part costs a second or two.</li>
+<li><b>Speed.</b> The interpreter does about 10 million instructions a second in Chrome. A 1995 Pentium did several times that, so the parts draw fewer frames per second here (roughly 5 to 15) than they did then. The speed of the animation is right; the smoothness is not.</li>
+</ol>
+
 <h2 id="process">The process</h2>
 <ol>
 <li><b>Look at the file.</b> A DOS <code>MZ</code> header, then <b>eight Rob Northen RNC (ProPack method 1) blocks</b> found by scanning for <code>RNC\x01</code>. Block 0 (25,570 bytes unpacked) is a DPMI extender plus a GUS player: Oskari Tammelin's <i>ProTracker for GUS</i>, patched to upload samples into GUS RAM. Blocks 1..7 are the demo parts, loaded one at a time as overlays.</li>
 <li><b>Unpack.</b> <code>tools/rnc.py</code> (and the identical <code>web/js/rnc.js</code>) decompress all eight blocks; the CRCs stored in each header match.</li>
-<li><b>Disassemble.</b> With <code>ndisasm</code>. The first guess (32-bit protected mode) was wrong: the parts are 16-bit real-mode code that uses 32-bit registers, and it reprograms VGA mode 13h into a planar layout.</li>
-<li><b>Get ground truth.</b> <code>tools/refcapture.py</code> boots the real <code>DOPE.EXE</code> in DOSBox-X with GUS emulation and saves 320×200 frames. Anything I write has to match those pixels.</li>
-<li><b>Build a measuring rig.</b> <code>tools/vm/</code> is a small x86 + VGA emulator that runs a snapshot of the part. It was used to measure, not to ship.</li>
-<li><b>Transcode part 1.</b> Once the picture layout (the card's planes read back four pixels per byte, CRTC start/offset counted in plane bytes) and the timer (69 interrupts/s, counter += 2) were right, part 1 reduced to a window into the unpacked picture plus two palette ramps. <code>web/js/part1.js</code> reproduces it with no emulator: 11 of 15 reference frames are byte-identical, 4 differ by 8 pixels each.</li>
+<li><b>Disassemble.</b> With <code>ndisasm</code>. The first guess (32-bit protected mode) was wrong: the parts are 16-bit real-mode code that uses 32-bit registers, and part 1 reprograms VGA mode 13h into a planar layout.</li>
+<li><b>Get ground truth.</b> <code>tools/refcapture.py</code> boots the real <code>DOPE.EXE</code> in DOSBox-X with GUS emulation and saves 320×200 frames, optionally tagged with the part's counter read out of guest memory. <code>tools/blocksnap.py</code> watches the INT 8 vector to snapshot every part at the moment it starts.</li>
+<li><b>Transcode part 1.</b> Once the picture layout (the card's planes read back four pixels per byte, CRTC start/offset counted in plane bytes) and the timer were right, part 1 reduced to a window into the unpacked picture plus two palette ramps (<code>web/js/part1.js</code>): 11 of 15 reference frames are byte-identical, 4 differ by 8 pixels each.</li>
+<li><b>Run the rest instead of rewriting it.</b> A small x86 interpreter and VGA model (<code>web/js/vm/</code>) first served as a measuring rig, then turned out to be the faithful way to play parts 2 to 7. The reversing was the loader, the entry points, the timer model, and what the card has to do (<i>reads</i> of A0000 as well as writes: block 5 repaints over the checker block 4 left on screen).</li>
+<li><b>Check the interpreter against a real x86 model.</b> <code>tools/diffcheck.py</code> and <code>diffcheck2.py</code> replay the interpreter's trace in <b>Unicorn</b> (QEMU's CPU) instruction by instruction, comparing registers, flags and every store, feeding it the same port reads and interrupts. It found, one at a time: <code>shld</code>/<code>shrd</code> with an immediate count executed as byte operations (the texture mapper's coordinate packing, which is why the first discs looked like moiré), rotates clobbering ZF/SF/PF, <code>imul</code> never setting CF/OF, and string instructions stepping SI/DI as 32-bit registers (a <code>rep movsd</code> across 64 KB, which hung part 6).</li>
 <li><b>The music.</b> <code>web/js/mod.js</code> is a 28-channel ProTracker replayer. Against libopenmpt the loudness envelope correlates at 0.994 over the first 20 s; over the whole tune the clocks drift by 0.3 s. Seeking skips ticks without mixing and is bit-identical to continuous playback (<code>tests/test_transport.mjs</code>).</li>
 </ol>
 <p>Everything is in the repository: <code>docs/ANALYSIS.md</code> and <code>docs/RUNTIME.md</code> hold the notes and measurements.</p>
@@ -50,15 +60,13 @@
 <tr><th>piece</th><th>state</th></tr>
 <tr><td>unpacking, module parsing</td><td>exact (CRC-checked)</td></tr>
 <tr><td>part 1 (first ~39 s)</td><td>transcoded from the original data, pixel-exact on 11/15 reference frames</td></tr>
+<tr><td>parts 2 to 7</td><td><b>the original code, emulated.</b> Not a port of the effects to JavaScript: the 1995 instructions run in a JS x86. Pictures pinned by <code>tests/test_partvm.mjs</code>; the interpreter agrees with Unicorn on the instruction streams checked (1.5 M instructions of the texture loop, 0.6 M of part 6's start)</td></tr>
+<tr><td>exactness</td><td>not pixel-for-pixel against DOSBox. The original is not deterministic in the counter (which credit band is up at counter 127 differed between two DOSBox runs), so there is no single frame to match; compared by eye, shapes, lighting and titles agree</td></tr>
+<tr><td>speed</td><td>5-15 frames per second instead of whatever a Pentium managed; animation speed is right</td></tr>
 <tr><td>music</td><td>the original module; own replayer, not bit-exact to the GUS</td></tr>
-<tr><td>timeline of the whole demo</td><td>measured: one DOSBox-X frame every 3 s of the original, 8 parts, exits to DOS at ~7:13 (the player stops there, the song runs on to 8:35)</td></tr>
-<tr><td>part 2, colours</td><td>exact: all 256 DAC entries read out of block 2, rewritten each timer tick through a 64 entry fade ramp (<code>web/js/part2.js</code>); every colour of the ten reference frames comes from it</td></tr>
-<tr><td>part 2, credits screen</td><td>exact: the shade table (segment <code>0x1998</code>) rebuilt from block 2 matches the running part's 24,576 bytes, the four credit bands sit at block <code>0x1201a</code> and match memory byte for byte, and the compose loop run by the original's own instructions writes exactly what <code>compose()</code> predicts on all 64,000 pixels; with the one-row blit scroll (<code>0x37e3</code>) the frozen screen reproduces 90 of 199 rows byte exact, the rest one DAC step out on the fade ramp</td></tr>
-<tr><td>part 2, 3D layer</td><td><b>not ported to this page.</b> The engine that fills the span buffer (transform, projection, texture spans at <code>0x26c0</code>) is described, and it runs: <code>tools/part2run.mjs</code> redoes the loader and boots the part from <code>DOPE.EXE</code> alone, which then builds 271 polygons and blits real frames. <code>tools/part2frames.mjs</code> drives it one frame per timer tick, 438 frames in ~15 s (the old 3.5&times;10<sup>8</sup> instructions per frame was a rig bug in 32 bit signed <code>idiv</code>). The best of those 438 frames matches <code>build/ref_p2/ref_0000</code> in 35,180 of 64,000 pixels: the credit rows are almost exact, the two discs are not. So the page still shows the look-alike here</td></tr>
-<tr><td>parts 3..end</td><td><b>look-alikes, not ports.</b> Each is a procedural imitation timed to the capture (chrome discs and credits, ribbons "phong BLUR motion", "7800 PHONG polys", "FIRE clouds", "FRACTAL scape", "ENV mapping", "BUMP glow", "SHADOW volume / material MORPH / METAL shading", "LIGHT sources", "WORLD domination", end). They are recognisably the same sequence but not the same pixels.</td></tr>
 </table>
-<figure><img src="img/timeline.jpg" alt="timeline" style="max-width:100%;aspect-ratio:auto"><figcaption>The original, one frame every 3 s from 0:39 to 7:13, left to right, top to bottom (DOSBox-X capture).</figcaption></figure>
-<p>That is the honest gap: the 3D parts are 370-480 KB overlays each (a texture mapper, object data, 256 colour palettes). I have captures of them, disassembly notes, and for part 2 a rig that renders sequential frames, not a port to the page. <code>web/js/look.js</code> says so in its header. The browser checks in <code>tests/test_browser.mjs</code> (audio, pause, seeks at 0:30/2:00/6:00, the 7:15 loop and <code>?vm=1</code>) pass 35/35 in headless Chrome.</p>
+<figure><img src="img/timeline.jpg" alt="timeline" style="max-width:100%;aspect-ratio:auto"><figcaption>The original running in DOSBox-X, one frame every 3 s (wall clock, so slightly compressed against the 70 Hz tick clock the page uses).</figcaption></figure>
+<p>Checks in headless Chrome (<code>tests/test_browser.mjs</code>): audio produces samples, pause freezes clock, picture and sound (also inside an emulated part), seeks at 0:30, 2:00 and 6:00 land on the right part, the loop at the end, and <code>?vm=1</code>.</p>
 
 <p><a href="writeup.html"><b>→ The best bits of assembly in the original</b></a></p>
 </main>
