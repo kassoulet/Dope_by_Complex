@@ -79,6 +79,16 @@ export const OFF = {
   f0: 0x5dc0, f1: 0x6590, f2: 0x6d60,
 };
 /** The same engine in block 7: other limits (2,000 faces), other offsets, same code. */
+/** block 5's */
+export const OFF5 = {
+  list: 0x0000, scratch: 0x1450, tex: 0x28a0, env: 0x3840, sy: 0x47e0, sx: 0x47e2, sz: 0x5780,
+  f0: 0x6720, f1: 0x7148, f2: 0x7b70,
+};
+/** block 6's: its face list lives at 0x3200 and the sort starts one bit lower */
+export const OFF6 = {
+  list: 0x3200, scratch: 0x41a0, tex: 0x0000, env: 0x0c80, sy: 0x1900, sx: 0x1902, sz: 0x2580,
+  f0: 0x5140, f1: 0x5910, f2: 0x60e0, bit0: 20,
+};
 export const OFF7 = {
   list: 0x0000, scratch: 0x1f40, tex: 0x3e80, env: 0x55f0, sy: 0x6d60, sx: 0x6d62, sz: 0x84d0,
   f0: 0x9c40, f1: 0xabe0, f2: 0xbb80,
@@ -138,16 +148,19 @@ export function transformObject(gs, geo, M, o, L = OFF) {
     const n = nrmAt + 6 * v;
     const nx = rds16(geo, n), ny = rds16(geo, n + 2), nz = rds16(geo, n + 4);
     const half = (x) => ((((x << 1) & 0xffff) << 16) >> 16) >> 1; // shl 1, then sar ax,1 on the low word
-    const tex = ((half(ny) & 0xffff) << 16) | (half(nx) & 0xffff);
+    const tex = o.texData ? rd32(geo, rd16(geo, 0xa) + 4 * v) : ((half(ny) & 0xffff) << 16) | (half(nx) & 0xffff); // block 5: the object brings its own
     const ex = (imul(nx, M[0]) + imul(ny, M[1]) + imul(nz, M[2])) | 0;
     const ey = (imul(nx, M[3]) + imul(ny, M[4]) + imul(nz, M[5])) | 0;
-    const env = ((ex & 0xffff0000) | ((ey >>> 16) & 0xffff)) + 0x40004000 | 0;
+    let env = (ex & 0xffff0000) | ((ey >>> 16) & 0xffff);
+    if (o.negEnv) env = -env | 0; // block 6 mirrors the lookup: neg edx
+    env = (env + 0x40004000) | 0;
     // the position
     const p = posAt + 6 * v;
     const px = rds16(geo, p) + cx0, py = rds16(geo, p + 2) + cy0, pz = rds16(geo, p + 4) + cz0;
     let X = (imul(M[0], px) + imul(M[1], py) + imul(M[2], pz)) | 0;
     let Y = (imul(M[3], px) + imul(M[4], py) + imul(M[5], pz)) | 0;
-    const Z = (imul(M[6], px) + imul(M[7], py) + imul(M[8], pz)) | 0;
+    let Z = (imul(M[6], px) + imul(M[7], py) + imul(M[8], pz)) | 0;
+    if (o.addOffset) { X = (X + cx0) | 0; Y = (Y + cy0) | 0; Z = (Z + cz0) | 0; } // block 5 translates twice
     wr32(gs, L.env + slot, env);
     wr32(gs, L.tex + slot, tex);
     X = (X + (o.pos[0] << 8)) | 0;
@@ -219,10 +232,11 @@ export function buildFaces(gs, geo, o, L = OFF) {
  * (The scratch area starts 1000 entries in: the engine's hard limit.)
  */
 export function radixSort(gs, count, L = OFF) {
+  const first = L.bit0 || 21, base = L.list || 0;
   let end = L.scratch + 4 * count; // [0x1978]: where the "bit set" side starts
-  for (let k = 21; k < 32; k++) {
+  for (let k = first; k < 32; k++) {
     const bit = (1 << k) >>> 0;
-    let di = L.scratch, bx = end, si = 0;
+    let di = L.scratch, bx = end, si = base;
     for (;;) {
       const e = rd32(gs, si);
       if ((e & 0xffff) >= 0x8000) break; // the terminator: the low word is negative
@@ -230,7 +244,7 @@ export function radixSort(gs, count, L = OFF) {
       if (((e >>> 0) & bit) === 0) { wr32(gs, di, e); di += 4; } else { wr32(gs, bx, e); bx -= 4; }
     }
     wr16(gs, di, 0xffff); // mov word [di],0xffff
-    si = 0;
+    si = base;
     for (let s = L.scratch; ; s += 4) { // the low side
       const e = rd32(gs, s);
       if ((e & 0xffff) >= 0x8000) break;

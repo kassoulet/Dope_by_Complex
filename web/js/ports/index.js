@@ -7,11 +7,15 @@
 import { loadImage } from '../partvm.js';
 import { Part3 } from './part3.js';
 import { Part4 } from './part4.js';
+import { Part5 } from './part5.js';
+import { Part6 } from './part6.js';
 import { Part7 } from './part7.js';
 
 const PORTS = {
   3: Part3,
   4: Part4,
+  5: Part5,
+  6: Part6,
   7: Part7,
 };
 

@@ -47,8 +47,6 @@ export class Part7 extends Part3 {
     this.strip = image.subarray(seg(0x6a86), seg(0x6a86) + 0x5000);
   }
 
-  labelBase() { return this.w(this.A.labSeg) << 4; }
-
   tick() {
     super.tick();
     this.setW(this.A.anim, this.w(this.A.anim) + 1);
@@ -100,6 +98,6 @@ export class Part7 extends Part3 {
 
 Part7.CFG = {
   script: script.map((st) => ({ ...st, set: st.set.map(([a, sz, v]) => [a, sz, a === 0x19c6 ? (v + RELOC) & 0xffff : v]) })),
-  A: A7, L: OFF7, V: V7, background: 0x5ab4, label: 0,
+  gsSeg: 0x3de1, A: A7, L: OFF7, V: V7, background: 0x5ab4, label: 0,
   dac: [[0x5a84, 0, 720, 0], [0x3beb, 0x2da, 48, 720]],
 };

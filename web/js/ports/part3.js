@@ -43,23 +43,23 @@ export class Part3 {
     const cfg = this.constructor.CFG;
     this.A = cfg.A; this.L = cfg.L; this.cfg = cfg;
     const rdW = (o) => image[CS + o] | (image[CS + o + 1] << 8);
-    this.cs = image.slice(CS, CS + 0x3000);
+    this.cs = image.slice(CS, CS + (cfg.csSize || 0x3000));
     this.image = image;
     this.sin = buildSine(new Int16Array(Array.from({ length: 0x200 }, (_, i) => s16(rdW(this.A.sine + 2 * i)))));
     this.total = 0;
-    this.gs = new Uint8Array(0x10000);
+    this.gs = image.subarray(seg(cfg.gsSeg), seg(cfg.gsSeg) + 0x10000); // the engine's arrays; in the image, because the frame buffer's tail overlaps them
     this.fbSeg = rdW(this.A.bufSeg);
-    this.fb = image.slice(this.fbSeg << 4, (this.fbSeg << 4) + 0x10000); // the off screen frame
+    this.fb = image.subarray(this.fbSeg << 4, (this.fbSeg << 4) + 0x10000); // the off screen frame (in the image: other things overlap its tail)
     this.background = image.subarray(seg(cfg.background), seg(cfg.background) + 0x3ed0 * 4);
     this.rows = new Uint16Array(256);
-    for (let i = 0; i < 256; i++) this.rows[i] = rdW(2 * i);
+    for (let i = 0; i < 256; i++) this.rows[i] = rdW((cfg.rowsAt || 0) + 2 * i);
     this.tex = { ds: [], fs: [] };
     for (let i = 0; i < 4; i++) {
       const d = rdW(this.A.dsTab + 2 * i) << 4, f = rdW(this.A.fsTab + 2 * i) << 4;
       this.tex.ds.push(image.subarray(d, d + 0x10000));
-      this.tex.fs.push(image.subarray(f, f + 0x10000));
+      this.tex.fs.push(f ? image.subarray(f, f + 0x10000) : null); // no map: the plain texture mapper
     }
-    this.ras = new Rasteriser({ cs: this.cs, gs: this.gs, OFF: cfg.L, V: cfg.V, fb: this.fb, rows: this.rows });
+    this.ras = new Rasteriser({ cs: this.cs, gs: this.gs, OFF: cfg.L, V: cfg.V, fb: this.fb, rows: this.rows, tShift: cfg.tShift || 8 });
     this.vram = new Uint8Array(64000);
     if (screen) this.vram.set(screen);
     // the screen as the part sets it up: 0..239 from one picture, 240..255 the label's, then 0..15 from the background's
@@ -77,7 +77,7 @@ export class Part3 {
   setW(o, v) { this.cs[o] = v & 0xff; this.cs[o + 1] = (v >> 8) & 0xff; }
   setD(o, v) { this.cs[o] = v & 0xff; this.cs[o + 1] = (v >> 8) & 0xff; this.cs[o + 2] = (v >> 16) & 0xff; this.cs[o + 3] = (v >>> 24) & 0xff; }
 
-  labelBase() { return seg(this.cfg.label); } // where the label picture is, as a linear address
+  labelBase() { return this.cfg.label ? seg(this.cfg.label) : this.w(this.A.labSeg) << 4; } // where the label picture is, as a linear address: fixed, or named by a variable the script changes
 
   /** 0x2060 -- the timer hook, once per tick. */
   tick() {
@@ -85,7 +85,7 @@ export class Part3 {
     this.setW(this.A.labPos, this.w(this.A.labPos) + this.w(this.A.labVel));
     const lp = this.sw(this.A.labPos);
     if (lp < 0 || this.w(this.A.labPos) >= 0x4b) this.setW(this.A.labVel, 0);
-    this.setW(this.A.spin, this.w(this.A.spin) + 0x64);
+    if (this.A.spin) this.setW(this.A.spin, this.w(this.A.spin) + 0x64);
     for (let r = this.A.records; ; r += this.A.recSize) {
       if (this.w(r + 2) === 0) {
         if (this.w(r) === 0) break;
@@ -110,13 +110,13 @@ export class Part3 {
       const pos = [0, 1, 2].map((i) => (this.d(r + 6 + 4 * i) + this.d(this.A.camPos + 4 * i)) | 0);
       const offset = [0, 1, 2].map((i) => this.d(r + 0x2e + 4 * i));
       const sel = this.w(r + 0x2a);
-      transformObject(this.gs, geo, M, { base: o.base, offset, pos, focal: this.sw(r + 4) }, this.L);
+      transformObject(this.gs, geo, M, { base: o.base, offset, pos, focal: this.sw(r + 4), texData: this.cfg.texData, addOffset: this.cfg.addOffset, negEnv: this.cfg.negEnv }, this.L);
       o.cull = this.w(r + 0x2c);
       o.selA = (this.w(this.A.selA) & 0xff) + (sel & 0xff);
       o.selB = (this.w(this.A.selB) & 0xff) + (sel >> 8);
       buildFaces(this.gs, geo, o, this.L);
     }
-    new DataView(this.gs.buffer).setUint32(4 * o.count, 0xffffffff, true);
+    new DataView(this.gs.buffer, this.gs.byteOffset, this.gs.length).setUint32(this.L.list + 4 * o.count, 0xffffffff, true);
     this.setW(this.A.count, o.count);
     this.setW(this.A.base, o.base);
     return o.count;
@@ -124,8 +124,8 @@ export class Part3 {
 
   /** 0x2920 -- draw the sorted faces back to front into the off screen frame. */
   polygons() {
-    const dv = new DataView(this.gs.buffer);
-    for (let si = 0; ; si += 4) {
+    const dv = new DataView(this.gs.buffer, this.gs.byteOffset, this.gs.length);
+    for (let si = this.L.list; ; si += 4) {
       const slot = dv.getUint16(si, true);
       if (slot >= 0x8000) break;
       const v0 = dv.getUint16(this.L.f0 + 2 * slot, true), v1 = dv.getUint16(this.L.f1 + 2 * slot, true), v2 = dv.getUint16(this.L.f2 + 2 * slot, true);
@@ -189,6 +189,6 @@ export class Part3 {
 }
 
 Part3.CFG = {
-  script, A: A3, L: OFF, V: V3, background: 0x4bb1, label: 0x3342,
+  script, gsSeg: 0x343d, A: A3, L: OFF, V: V3, background: 0x4bb1, label: 0x3342,
   dac: [[0x306, 0x10, 720, 0], [0x3342, 0x2da, 48, 720], [0x4b81, 0, 48, 0]], // [segment, offset, bytes, first DAC byte]
 };
