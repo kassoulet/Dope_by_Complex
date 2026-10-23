@@ -657,6 +657,41 @@ not compared) or stores.  Bugs it found, all fixed and pinned in
 | `rep movs/stos/lods` | stepped SI/DI as 32 bit registers; across a 64 KB `rep movsd` ESI became `0x10000` instead of wrapping, and part 6's sorter then walked off its list |
 | 32 bit `idiv` | (found earlier) combined EDX:EAX as unsigned |
 
+### The recompiler
+
+`web/js/vm/jit.js` translates a basic block (up to 48 instructions, following
+unconditional `jmp`s) into a JavaScript function on first use.  The interpreter
+is the specification: anything the translator does not handle (`int`, `iret`,
+`pushf/popf`, the byte `mul/div`, `cmps/scas`, `rcl/rcr`, bit tests, ...) ends
+the block before it and is run by `cpu.step()`.  Design points:
+
+* registers are locals (int32), loaded and stored only if the block uses and
+  changes them; flags are computed backwards-liveness style, so in a loop like
+  `add ecx,imm / add edx,imm / mov bl,[bx+si] / ... / dec bp / jnz` only the
+  last writer of each flag does any work;
+* a conditional jump back to the block's own start becomes `for(;;){...continue}`
+  with an instruction budget, so a texture span runs inside one JS function;
+* **self-modifying code.** Every byte of a translated instruction is marked in a
+  1 MB `prot` map; a store to a marked byte, from translated or interpreted
+  code, drops the blocks containing it, and ends the running block if it was
+  the one hit.  The parts patch only 3-4 immediates each (`add dword [cs:..],imm32`,
+  `add ebp,imm32`, `adc edx,imm32`, the span loop's `add ecx/edx,imm32`);
+  when a store lands in an immediate field that field is remembered and read
+  from memory at run time from then on (and left unprotected), which took part 2
+  from 112,000 recompiles to 21;
+* `mul/imul/div/idiv` use exact 64 bit helpers (`hiu`, `his`, `div64`) because
+  doubles hold 53 bits;
+* `tests/test_jit.mjs` runs each part through the recompiler and, in lock step,
+  the interpreter for the same number of instructions with the same interrupt
+  schedule, comparing registers, flags and (every 25 runs) all of memory, the
+  card and the DAC.  The first translation of every part found one bug: a
+  misuse of the high-byte register encoding (`mov ah,al` wrote AL), caught
+  inside the first thousand instructions.  15 M instructions per part now match
+  exactly.
+
+`tools/bench.mjs`: interpreter 16-20 M instructions/s, recompiler 31-155 (block
+4's fire loops are the best case), after later work 45-230.
+
 ### What the page does
 
 `web/js/main.js` plays part 1 (transcoded) until its 38.96 s are up, then

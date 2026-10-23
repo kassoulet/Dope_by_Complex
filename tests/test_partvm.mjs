@@ -39,7 +39,7 @@ const pinned = JSON.parse(readFileSync(join(root, 'tests/part_digests.json'), 'u
 const update = process.argv.includes('--update');
 
 for (const p of table.parts) {
-  const r = new PartRunner(blocks[p.block], p, p.screen ? screen(p.screen) : null);
+  const r = new PartRunner(blocks[p.block], p, p.screen ? screen(p.screen) : null, null, { jit: false }); // the interpreter: block-exact schedule
   for (let i = 0; i < 600 && !r.exited; i++) { r.deliverTick(); r.run(5000); }
   r.run(300000);
   const { pixels, pal } = r.snapshot();

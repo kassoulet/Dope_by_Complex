@@ -14,6 +14,7 @@
  * says a tick is due, so pause is "stop calling it" and seek is "call it fast".
  */
 import { Machine } from './vm/machine.js';
+import { JIT } from './vm/jit.js';
 
 export const SEGMENT = 0xf8b;
 export const TICK_HZ = 70.086; // one timer interrupt per mode 13h frame
@@ -92,9 +93,10 @@ export function makePart(block, spec, { screen = null, gs = null, left = null } 
 
 /** One part, driven by ticks. */
 export class PartRunner {
-  constructor(block, spec, screen = null, left = null) {
+  constructor(block, spec, screen = null, left = null, { jit = true } = {}) {
     this.spec = spec;
     ({ m: this.m } = makePart(block, spec, { screen, left }));
+    this.jit = jit ? new JIT(this.m.cpu) : null;
     this.tick = 0; // timer interrupts delivered so far
     this.exited = false;
   }
@@ -103,6 +105,11 @@ export class PartRunner {
   run(n) {
     const m = this.m;
     const c = m.cpu;
+    if (this.jit) {
+      this.jit.run(n, m);
+      if (m.exited) { this.exited = true; return false; }
+      return true;
+    }
     for (let i = 0; i < n; i++) {
       c.step();
       m.clock++;

@@ -48,8 +48,14 @@ Click the canvas to start.  Space pauses, left/right seek 5 s, `j`/`l` 10 s, Hom
 * Pause stops the interrupts and the interpreter.  Seek restarts the part on the
   screen the previous part left (`web/data/handoff{3,4,5}.z`, made by
   `tools/mkhandoff.sh`) and calls the interrupt fast until the counters catch up.
-* The interpreter does ~10 M instructions/s in Chrome, so the parts draw fewer
-  frames per second (5-15) than on a Pentium.  The animation speed is right.
+* A dynamic recompiler (`web/js/vm/jit.js`) turns each x86 basic block into a
+  JavaScript function the first time it runs: registers are locals, ModRM is
+  decoded once, flags are computed only if something can read them, a block that
+  loops to its own start loops inside the function, and the immediates the
+  parts patch in their own code are read from memory (`tests/test_jit.mjs`
+  runs every part both ways in lock step and compares registers, flags, memory
+  and the card).  It runs 45-230 M instructions/s (the interpreter 16-20), which
+  is a few frames per tick of the original's 70 Hz for every part.
 * The interpreter was checked against Unicorn (QEMU's CPU) instruction by
   instruction: `tools/diffcheck.py` (one dumped state) and `tools/diffcheck2.py`
   (a whole run from boot with port reads and interrupts replayed).  It found
@@ -73,7 +79,7 @@ web/js/part2.js       what is exact about part 2's screen machinery (palette, ba
 web/js/partvm.js      a part as the loader leaves it, driven by ticks
 web/js/emuworker.js   the worker that runs a part at the page clock's pace
 web/js/emuparts.js    the timeline of parts 2..7 and the canvas painting
-web/js/vm/            x86 interpreter, VGA/DAC model, machine (INT 10h/21h, timer)
+web/js/vm/            x86 interpreter (x86.js), its recompiler (jit.js), VGA/DAC model, machine (INT 10h/21h, timer)
 web/data/             parts.json (relocation, entries, lengths), handoff screens
 tools/                extraction, DOSBox-X capture and snapshot, differential tests, renderers
 tests/                regression tests
@@ -89,6 +95,7 @@ node tests/test_rnc.mjs          # the JS decompressor against the same CRCs
 node tests/test_part1.mjs        # part 1: picture, scroll units, palette, frames
 node tests/test_partvm.mjs       # parts 2..7 from DOPE.EXE: ISR, picture, pinned digests
 node tests/test_x86.mjs          # interpreter regressions found by the Unicorn replay
+node tests/test_jit.mjs [runs]   # recompiler == interpreter, lock step, all six parts
 node tests/test_vga.mjs          # the VGA model
 node tests/test_part2.mjs        # part 2's palette, shade table and bands against the frozen part
 node tests/test_part2_frames.mjs # part 2 one frame per tick in the rig

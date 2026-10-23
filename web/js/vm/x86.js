@@ -71,6 +71,8 @@ export class CPU {
     this.insts = 0;
     this.halted = false;
     this.onInt = null;
+    this.prot = null; // set by the JIT: bytes of translated code
+    this.jit = null;
     this.reset();
   }
 
@@ -123,15 +125,18 @@ export class CPU {
     return false;
   }
 
+  // A store into bytes the JIT has translated drops those blocks (self-modifying code).
   write8(a, v) {
     a &= 0xfffff;
     if (this.videoWrite(a, v & 0xff, 1)) return;
+    if (this.prot !== null && this.prot[a]) this.jit.smc(a, 1);
     this.mem[a] = v & 0xff;
   }
 
   write16(a, v) {
     a &= 0xfffff;
     if (this.videoWrite(a, v & 0xffff, 2)) return;
+    if (this.prot !== null && (this.prot[a] | this.prot[(a + 1) & 0xfffff])) this.jit.smc(a, 2);
     const m = this.mem;
     m[a] = v & 0xff;
     m[(a + 1) & 0xfffff] = (v >> 8) & 0xff;
@@ -140,6 +145,7 @@ export class CPU {
   write32(a, v) {
     a &= 0xfffff;
     if (this.videoWrite(a, v >>> 0, 4)) return;
+    if (this.prot !== null && (this.prot[a] | this.prot[(a + 1) & 0xfffff] | this.prot[(a + 2) & 0xfffff] | this.prot[(a + 3) & 0xfffff])) this.jit.smc(a, 4);
     const m = this.mem;
     m[a] = v & 0xff;
     m[(a + 1) & 0xfffff] = (v >>> 8) & 0xff;
@@ -292,7 +298,7 @@ export class CPU {
     this.zf = res === 0 ? 1 : 0;
     this.sf = (res & SIGN[size]) ? 1 : 0;
     this.pf = PARITY[res & 0xff];
-    this.af = ((v ^ delta ^ res) & 0x10) ? 1 : 0;
+    this.af = ((v ^ res) & 0x10) ? 1 : 0;
     return res;
   }
 
