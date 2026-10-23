@@ -60,7 +60,7 @@ export function findGs(block) {
   return null;
 }
 
-export function makePart(n, { ipt = 20000, gs = null } = {}) {
+export function makePart(n, { ipt = 20000, gs = null, screen = null } = {}) {
   const block = new Uint8Array(readFileSync(blockFile(n)));
   const relocs = JSON.parse(readFileSync('tools/relocs.json', 'utf8'))[String(n)];
   const mem = loadImage(block, relocs.reloc);
@@ -70,8 +70,17 @@ export function makePart(n, { ipt = 20000, gs = null } = {}) {
   m.boot(mem, { part_segment: SEGMENT, entry, counter_offset: 0 });
   const g = gs !== null ? gs : (findGs(block) === null ? null : (findGs(block) + SEGMENT - 0x10) & 0xffff);
   if (g !== null) m.cpu.sreg[5] = g;
+  // some parts keep their one-off setup in a far routine the loader calls first
+  // (`cld / push cs / pop ds / call ... / retf`); run it, returning into the main entry
+  if (relocs.init) {
+    m.cpu.push(SEGMENT, 2); m.cpu.push(entry, 2);
+    m.cpu.ip = relocs.init - 0x100;
+  }
   // parts 5 and 6 never set the mode themselves: they inherit 13h from the part before
-  if (n === 4 || n === 5 || n === 6) m.vga.setMode(0x13);
+  if (n === 4 || n === 5 || n === 6) {
+    m.vga.setMode(0x13);
+    if (screen) { m.vga.pixels.set(screen.pixels, 0); m.vga.pal.set(screen.pal); }
+  }
   const out8 = m.out8.bind(m);
   m.out8 = (p, v) => { if (p === 0x40 || p === 0x43) return; out8(p, v); };
   m.pitDiv = ipt; m.pitCount = ipt;
@@ -86,8 +95,15 @@ function main(argv) {
   const maxInst = Number(opt('max-inst', '5e8'));
   const out = opt('out', 'build/out/b' + n);
   const gs = opt('gs', null);
+  const quiet = argv.includes('--quiet');
   mkdirSync(out, { recursive: true });
-  const { m, entry } = makePart(n, { ipt, gs: gs === null ? null : parseInt(gs, 16) });
+  const initFile = opt('init', null);
+  let screen = null;
+  if (initFile) { const b = readFileSync(initFile); screen = { pixels: b.subarray(0, 64000), pal: b.subarray(64000, 64768) }; }
+  const { m, entry } = makePart(n, { ipt, gs: gs === null ? null : parseInt(gs, 16), screen });
+  let ticks = 0;
+  const oi = m.cpu.interrupt.bind(m.cpu);
+  m.cpu.interrupt = (v) => { if (v === 8) ticks++; return oi(v); };
   console.log(`block ${n}: entry ${entry.toString(16)} (block ${(entry + 0x100).toString(16)})`);
   let written = 0, count = 0;
   const wv = m.writeVideo.bind(m);
@@ -98,7 +114,7 @@ function main(argv) {
       written = 0; count++;
       const px = m.vga.pixels.slice(0, 64000);
       let ink = 0; for (const b of px) if (b) ink++;
-      if (count <= frames) {
+      if (count <= frames && !quiet) {
         writeFileSync(join(out, `f${String(count).padStart(4, '0')}.png`), encodePNG(320, 200, indexedToRGB(px, m.vga.pal, 320, 200)));
         console.log(`frame ${count}  inst ${(m.cpu.insts / 1e6).toFixed(1)}M  ink ${ink}`);
       }
@@ -106,6 +122,13 @@ function main(argv) {
   };
   const t0 = Date.now();
   while (count < frames && m.cpu.insts < maxInst && !m.exited && !m.stopped) { m.cpu.step(); m.tick(); }
-  console.log(`stopped: ${count} frames, ${(m.cpu.insts / 1e6).toFixed(1)}M instructions, ${((Date.now() - t0) / 1000).toFixed(1)}s, exited ${m.exited}, log ${m.log.slice(0, 5)}`);
+  const dump = opt('exit-dump', null);
+  if (dump) {
+    const b = Buffer.alloc(64768);
+    b.set(m.vga.pixels.subarray(0, 64000), 0); b.set(m.vga.pal, 64000);
+    writeFileSync(dump, b);
+    writeFileSync(dump + '.json', JSON.stringify({ block: n, ticks, instructions: m.cpu.insts, exited: m.exited, frames: count, ipt }));
+  }
+  console.log(`ticks ${ticks}; stopped: ${count} frames, ${(m.cpu.insts / 1e6).toFixed(1)}M instructions, ${((Date.now() - t0) / 1000).toFixed(1)}s, exited ${m.exited}, log ${m.log.slice(0, 5)}`);
 }
 if (process.argv[1] && process.argv[1].endsWith('partrun.mjs')) main(process.argv.slice(2));

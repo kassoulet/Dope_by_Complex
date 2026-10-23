@@ -1492,8 +1492,10 @@ export class CPU {
   }
 
   stepPtr(i, size) {
+    // the string pointer moves by the operand size; it is a 32 bit register only
+    // under a 0x67 prefix, otherwise SI/DI wrap at 64 K and the high half stays
     const d = this.df ? -size : size;
-    if (size === 4) this.r[i] = (this.r[i] + d) >>> 0;
+    if (this.addr32) this.r[i] = (this.r[i] + d) >>> 0;
     else this.setR(i, 2, (this.getR(i, 2) + d) & 0xffff);
   }
 }

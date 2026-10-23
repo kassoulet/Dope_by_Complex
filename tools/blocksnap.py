@@ -23,6 +23,8 @@ def main():
     ap.add_argument('--seconds', type=float, default=460)
     ap.add_argument('--out', default=os.path.join(ROOT, 'build', 'snap'))
     ap.add_argument('--display', default=':79')
+    ap.add_argument('--late', type=float, nargs='*', default=[],
+                    help='also snapshot this many seconds after each part starts (blockN.lateS.mem)')
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
     work = tempfile.mkdtemp(prefix='dope-blocks-')
@@ -49,6 +51,7 @@ def main():
         print('guest found at %.1fs, part 1 segment %#x' % (time.time() - t0, seg))
         geom = window_geometry(args.display)
         seen = set()
+        due = []  # (time, block, label)
         last = None
         while time.time() - t0 < args.seconds and proc.poll() is None:
             raw = guest.read(base + 0x20, 4)
@@ -69,8 +72,19 @@ def main():
                     with open('%s/block%d.mem' % (args.out, n), 'wb') as f: f.write(mem)
                     with open('%s/block%d.json' % (args.out, n), 'w') as f: json.dump(meta, f)
                     print('block %d starts at %.2fs (segment %#x)' % (n, time.time() - t0, segv), flush=True)
+                    for L in args.late: due.append((time.time() + L, n, 'late%g' % L))
                 elif not n:
                     print('  vector -> %04x:%04x at %.2fs' % (segv, off, time.time() - t0), flush=True)
+            if due and time.time() >= min(d[0] for d in due):
+                d0 = min(due); due.remove(d0)
+                os.kill(proc.pid, signal.SIGSTOP)
+                try:
+                    mem = guest.read(base, 0x100000)
+                    if geom: grab(args.display, geom, '%s/block%d.%s.png' % (args.out, d0[1], d0[2]))
+                finally:
+                    os.kill(proc.pid, signal.SIGCONT)
+                with open('%s/block%d.%s.mem' % (args.out, d0[1], d0[2]), 'wb') as f: f.write(mem)
+                print('  block %d %s snapshot' % (d0[1], d0[2]), flush=True)
             time.sleep(0.003)
     finally:
         proc.kill(); proc.wait(); xvfb.kill(); shutil.rmtree(work, ignore_errors=True)
