@@ -597,12 +597,70 @@ the frozen part), the `gs` rule, and that a boot from the block reaches its draw
 with 271 polygons whose first span is -2999 -- so none of it can silently
 drift.  `tests/test_part2_frames.mjs` pins the one-tick frames.
 
-## How the page plays the demo
+## Parts 2..7 run from their own blocks
 
-`web/` runs the demo in order: `part1.js` draws until `counterAt(t)` reaches
-`0x1500`, then `main.js` hands over to the reconstruction of parts 2..7.  The
-handover is a time comparison, so it is testable: `?t=N` pins the picture at N
-seconds and stops (`?t=5` is counter 690 of part 1, `?t=45` is the
-reconstruction), and a canvas grab at `?t=5` is byte identical to the node
-render for counter 690.  `?vm=1` plays part 1 alone, `?scene=N` pins one
-reconstructed scene and skips part 1.
+Everything the part-2 sections above found about the loader generalises, and
+that is what the page uses (`web/js/partvm.js`, data in `web/data/parts.json`):
+
+* **Relocation.** Each block is mapped at `0xf8b` (file offset `0x100` at the
+  first byte), and 22-28 words are patched by `+ (segment - 0x10)`.  The lists
+  were measured by diffing a DOSBox-X snapshot of every part at its start
+  (`tools/blocksnap.py` watches the INT 8 vector and freezes the machine when a
+  part installs its handler; `tools/relocdiff.py` does the diff).  They are the
+  code immediates before `pop ds/es/fs/gs`, the sub-pixel phase tables at
+  `cs:0x400..0x40e`, the object records' first word (the segment of their
+  geometry) and, for blocks 5 and 6, six header words.  I did not find a table
+  for them in block 0.
+* **Entry.** `main` is the run of `push cs / call` that ends in the part's
+  `int 21h/4Ch` (`findEntry`), except block 4 (part-1 style, entry at `0x1daa`).
+  Block 6 keeps its one-off setup (the sine table) in a far routine
+  (`cld / push cs / pop ds / call ... / retf`, block `0x2fcf`) that the loader
+  calls first; main alone leaves the table empty and the polygon sorter runs
+  off its list.  `gs` is the part's data segment, the immediate of its first
+  `push imm / pop gs`.
+* **Screen inheritance.** Blocks 4, 5 and 6 never set the video mode: they paint
+  over what the part before left in VRAM and the DAC (block 5 repaints the
+  checker block 4 ended on, and **reads it back from A0000**, which the
+  interpreter has to serve from the card, not the flat memory).  The three
+  screens are `web/data/handoff{3,4,5}.z`, made by `tools/mkhandoff.sh`.  The
+  memory the previous part left above the new image does not matter (tried).
+* **Clock.** Every part runs off its INT 8 at the monitor's rate.  Run to their
+  exit with one interrupt per 100,000 instructions they last 8200, 3665, 7443,
+  4557, 4063 and 2494 interrupts (blocks 2..7), +2688 for part 1: 33,110 ticks,
+  7:53 at 70.086 Hz.  DOSBox-X's wall clock durations agree to a few percent
+  (3665 ticks = 52.3 s measured, 53.7 s second run).  The ISR's retrace waits
+  are made to end at once (`vga.fastRetrace`) so interrupts are cheap.
+* **Not deterministic.** Two DOSBox runs froze at the same counter (127) with
+  different credit bands up, and no rig frame matches a captured one exactly
+  even at the right counter (best 74% of pixels).  The animation depends on
+  where in a frame the interrupts land, so "pixel exact against DOSBox" is not
+  a test that can pass for parts 2..7; `tests/test_partvm.mjs` pins the rig's
+  own pictures instead.
+
+### The interpreter, checked against Unicorn
+
+`tools/difftrace.mjs` (from a point in part 2) and `tools/difftrace2.mjs` (a
+whole run from boot) dump the memory and the interpreter's state after every
+instruction, its stores, and the events a replay needs (port reads, interrupts,
+INT services the machine handled itself).  `tools/diffcheck.py` and
+`tools/diffcheck2.py` replay them in Unicorn (real mode, `.venv`) and stop at
+the first difference in registers, flags (AF/OF undefined after some ops are
+not compared) or stores.  Bugs it found, all fixed and pinned in
+`tests/test_x86.mjs`:
+
+| instruction | what the interpreter did |
+|-------------|---------------------------|
+| `0F A4/AC` `shld/shrd r/m,r,imm8` | executed with byte operands (confused with `movs`'s `A4`); the texture loop's coordinate packing, so the first discs were moiré |
+| `rol/ror/rcl/rcr` | also rewrote ZF, SF and PF (rotates only change CF/OF) |
+| `imul r,r/m` | cleared CF/OF always; now set on overflow, and uses `Math.imul` |
+| shift counts | now masked to 5 bits like a 386 |
+| `rep movs/stos/lods` | stepped SI/DI as 32 bit registers; across a 64 KB `rep movsd` ESI became `0x10000` instead of wrapping, and part 6's sorter then walked off its list |
+| 32 bit `idiv` | (found earlier) combined EDX:EAX as unsigned |
+
+### What the page does
+
+`web/js/main.js` plays part 1 (transcoded) until its 38.96 s are up, then
+`emuparts.js` sends the page's clock to `emuworker.js`, which keeps one part's
+interrupts due-on-time and runs the interpreter in between (see the README).
+`?t=N` pins the picture at N seconds, and `window.__dope` is what
+`tests/test_browser.mjs` drives.
