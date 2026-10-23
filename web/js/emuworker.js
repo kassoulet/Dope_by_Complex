@@ -14,6 +14,7 @@
  * messages out:  {type:'ready'} {type:'frame', part, tick, pixels, pal, stats} {type:'seeking', part}
  */
 import { PartRunner, TICK_HZ } from './partvm.js';
+import { hasPort, PortRunner } from './ports/index.js';
 
 // Instructions between interrupts when the clock is ahead of the part (a seek, or
 // a stalled tab catching up).  Not smaller: the part draws a frame in about a
@@ -66,7 +67,10 @@ function pump() {
   pumping = false;
   if (!runner) return;
   const t0 = performance.now();
-  if (runner.tick < seekTo) {
+  if (runner.advanceTo) {
+    // a port: no instructions, just ticks.  Seeking and playing are the same thing.
+    runner.advanceTo(runner.tick < seekTo ? seekTo : running ? Math.floor(dueTick()) : runner.tick);
+  } else if (runner.tick < seekTo) {
     // fast forward: interrupts as fast as the part will take them
     while (runner.tick < seekTo && performance.now() - t0 < 40 && !runner.exited) {
       if (runner.deliverTick()) { runner.run(FF_IPT); insts += FF_IPT; } else { runner.run(FF_IPT); insts += FF_IPT; }
@@ -92,7 +96,10 @@ function pump() {
     if (now - fpsAt > 1000) { fps = fpsCount * 1000 / (now - fpsAt); fpsCount = 0; fpsAt = now; }
     postMessage({ type: 'frame', part: partIdx, tick: runner.tick, pixels, pal, stats: { mips, fps, exited: runner.exited } }, [pixels.buffer, pal.buffer]);
   }
-  if (running || runner.tick < seekTo) { pumping = true; chan.port2.postMessage(0); }
+  if (runner.advanceTo) {
+    // ports are cheap: come back at the display's pace instead of spinning
+    if (running || runner.tick < seekTo) setTimeout(() => { if (!pumping) { pumping = true; chan.port2.postMessage(0); } }, 8);
+  } else if (running || runner.tick < seekTo) { pumping = true; chan.port2.postMessage(0); }
 }
 
 onmessage = (e) => {

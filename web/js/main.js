@@ -211,7 +211,7 @@ function drawAt(t) {
   if (!emu) return;
   const k = emu.draw(t, pctx, !paused);
   const s = emu.stats;
-  status.textContent = `original code, part ${k + 2} (block ${emu.parts[k].block}) run in a JS x86 -- ` +
+  status.textContent = `part ${k + 2} (block ${emu.parts[k].block}) ` + (emu.parts[k].port ? `ported to JavaScript (${emu.parts[k].port}.js) -- ` : 'original code run in a JS x86 -- ') +
     (emu.seeking ? "seeking..." : `${s.fps.toFixed(0)} pictures/s, tick ${emu.frame ? emu.frame.tick : 0} of ${emu.parts[k].ticks}`);
 }
 
