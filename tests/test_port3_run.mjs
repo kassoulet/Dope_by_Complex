@@ -11,6 +11,7 @@ import { Part3 } from '../web/js/ports/part3.js';
 import { Part7 } from '../web/js/ports/part7.js';
 import { Part5 } from '../web/js/ports/part5.js';
 import { Part6 } from '../web/js/ports/part6.js';
+import { Part2 } from '../web/js/ports/part2.js';
 
 // node tests/test_port3_run.mjs [max frames] [--block 7]
 const args = process.argv.slice(2);
@@ -19,6 +20,9 @@ const BLOCK = bi >= 0 ? Number(args.splice(bi, 2)[1]) : 3;
 const MAX = Number(args[0] || 1e9);
 const POLY = process.argv.includes('--poly'); // check polygon by polygon inside the frame (finds the first bad polygon)
 const SET = {
+  2: { p0: 0x2e48, poly: 0x2881, dsfs: 0x2e8c, gs: 0x2ccd, Part: Part2, drawn: 0x3740, done: 0x3743, vars: [0x1810, 0x1970], rast: [0x264c, 0x2f20], extra: [[0x1f10, 0x2210], [0x2510, 0x2550]],
+    regions: [[0x3527, 'shade table and map'], [0x5517, 'screen buffer']],
+    scratch: [[0x18f8, 0x1924], [0x1906, 0x1908], [0x2e6e, 0x2e72], [0x2e8c, 0x2e90]] },
   6: { p0: 0x2594, poly: 0x1fd1, dsfs: 0x25d8, gs: 0x667b, Part: Part6, drawn: 0x2e6e, done: 0x2e71, vars: [0x1620, 0x1780], rast: [0x1d98, 0x2780], extra: [[0, 0x210], [0x2ed9, 0x2f59], [0x3259, 0x325d]],
     scratch: [[0x1708, 0x1732], [0x1714, 0x1716], [0x1754, 0x1758], [0x25ba, 0x25be], [0x25d8, 0x25dc]] },
   5: { p0: 0x2318, poly: 0x1d51, dsfs: 0x235c, gs: 0x2685, Part: Part5, drawn: 0x2b88, done: 0x2b8b, vars: [0x1400, 0x1580], rast: [0x1b1c, 0x23f0], extra: [[0x374b, 0x395b]], scratch: [[0x1400, 0x1412], [0x1506, 0x1508], [0x14fa, 0x1524], [0x1c0, 0x1c0], [0x233e, 0x2342], [0x235c, 0x2360]] }, 3: { p0: 0x27d0, poly: 0x2211, dsfs: 0x2814, gs: 0x343d, Part: Part3, drawn: 0x2bc6, done: 0x2bc9, vars: [0x1800, 0x1a40], rast: [0x1fe4, 0x2830], scratch: [[0x1800, 0x1810], [0x1978, 0x197a], [0x196c, 0x1996], [0x1a20, 0x1a30], [0x27f6, 0x27fa], [0x2814, 0x2820]] },
@@ -43,6 +47,7 @@ function compare(frame) {
   const arr = (name, a, b, base = 0) => { const d = diffRanges(a, b); if (d.length) bad.push(`${name} differs at ${(base + d[0][0]).toString(16)}..${(base + d[0][1]).toString(16)} (${d.length} ranges): port ${a[d[0][0]]} original ${b[d[0][0]]}; others ${d.slice(1, 4).map((x) => (base + x[0]).toString(16))}`); };
   arr('variables 0x1800..0x1a40', masked(port.cs.subarray(SET.vars[0], SET.vars[1]), SET.vars[0]), masked(mem.subarray(CS + SET.vars[0], CS + SET.vars[1]), SET.vars[0]), SET.vars[0]);
   arr('rasteriser variables', masked(port.cs.subarray(SET.rast[0], SET.rast[1]), SET.rast[0]), masked(mem.subarray(CS + SET.rast[0], CS + SET.rast[1]), SET.rast[0]), SET.rast[0]);
+  for (const [sg, name] of SET.regions || []) { const b = ((sg + 0xf7b) & 0xffff) << 4; arr(name, port.image.subarray(b, b + 0x10000), mem.subarray(b, b + 0x10000)); }
   for (const [x, y] of SET.extra || []) arr('cs tables', port.cs.subarray(x, y), mem.subarray(CS + x, CS + y), x);
   if (BLOCK === 7) arr('lookup buffer', port.image.subarray(port.texBase, port.texBase + 0x10000), mem.subarray(port.texBase, port.texBase + 0x10000));
   arr('frame buffer', port.fb, mem.subarray(fbBase, fbBase + 0x10000));
@@ -106,7 +111,7 @@ while (!c.halted && !m.exited && frame < MAX && ok && !port.ending) {
     if (frame % 200 === 0) console.log(`  frame ${frame}, step ${port.step}, ${((Date.now() - t0) / 1000).toFixed(0)} s`);
   }
   c.step();
-  if (++guard > 4e9) break;
+  if (++guard > 4e11) break;
 }
 // block 7 ends with a strip copied on the screen and a 350 tick wait: run that out too
 if (ok && BLOCK === 7 && port.ending) {
@@ -134,6 +139,13 @@ if (ok && BLOCK === 5 && port.ending) {
   while (!port.done && n++ < 100) port.tick();
   cmp(`at the end (port: ${n} ticks of fading)`);
 }
+// block 2 ends on a white palette
+if (ok && BLOCK === 2 && port.ending) {
+  for (let g = 0; g < 4e8 && !(c.sreg[1] === 0xf8b && c.ip === 0x4407); g++) c.step();
+  const dv = diffRanges(port.vram, m.vga.pixels.subarray(0, 64000)), dd = diffRanges(port.dac, m.vga.pal.subarray(0, 768));
+  console.log(dv.length || dd.length ? `FAIL at the end: picture ${dv.length} ranges, DAC ${dd.length} ranges (${dd[0] ? port.dac[dd[0][0]] + ' vs ' + m.vga.pal[dd[0][0]] : ''})` : '   at the end: picture and DAC (white) match');
+  ok = ok && !dv.length && !dd.length;
+}
 // block 6 ends by fading the palette to black, paced by the retrace
 if (ok && BLOCK === 6 && port.ending) {
   for (let g = 0; g < 4e8 && !(c.sreg[1] === 0xf8b && c.ip === 0x3d71); g++) c.step();
@@ -143,5 +155,6 @@ if (ok && BLOCK === 6 && port.ending) {
   console.log(dv.length || dd.length ? `FAIL at the end: picture ${dv.length} ranges, DAC ${dd.length} ranges` : `   after ${n} ticks of fading: picture and DAC match (the DAC is black)`);
   ok = ok && !dv.length && !dd.length;
 }
+if (process.env.DBG) console.log("end state: ip", c.ip.toString(16), "exited", m.exited, "halted", c.halted, "port step", port.step, "ticks", port.d(port.A.ticks), "ending", port.ending);
 console.log(ok ? `ok   ${frame} frames, step ${port.step}${port.done ? ' (done)' : ''}` : 'FAILED');
 process.exit(ok ? 0 : 1);

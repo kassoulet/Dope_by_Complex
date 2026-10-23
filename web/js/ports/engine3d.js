@@ -39,7 +39,8 @@ const idx = (a) => (a & 0xffe) >> 1;
  * (cs:0x810).  Writes 9 dwords, in the order the original stores them at
  * cs:0x1dcc..0x1dec, and returns the 6 intermediates (0x1db4..0x1dc8) too.
  */
-export function rotationMatrix(sin, a0, a1, a2) {
+export function rotationMatrix(sin, a0, a1, a2, rounded = false) {
+  if (rounded) return rotationMatrixRounded(sin, a0, a1, a2);
   const S = (a) => sin[idx(a)], C = (a) => sin[idx(a) + 0x200];
   const sa = S(a0), ca = C(a0), sb = S(a1), cb = C(a1), sc = S(a2), cc = C(a2);
   const m = new Int32Array(9);
@@ -53,6 +54,28 @@ export function rotationMatrix(sin, a0, a1, a2) {
   m[6] = imul(-sb, ca) >> 15; // 0x1de4
   m[7] = -sa; // 0x1de8
   m[8] = imul(cb, ca) >> 15; // 0x1dec
+  return m;
+}
+
+/**
+ * Block 2's copy of the matrix routine is the older one: every `sar 15` is
+ * followed by `adc 0`, which rounds to nearest (except the inner product of
+ * the fourth entry, which the author forgot).
+ */
+function rotationMatrixRounded(sin, a0, a1, a2) {
+  const S = (a) => sin[idx(a)], C = (a) => sin[idx(a) + 0x200];
+  const sa = S(a0), ca = C(a0), sb = S(a1), cb = C(a1), sc = S(a2), cc = C(a2);
+  const imul = Math.imul, r = (v) => (v >> 15) + ((v >> 14) & 1);
+  const m = new Int32Array(9);
+  m[0] = r((imul(cb, cc) - imul(r(imul(sb, sa)), sc)) | 0);
+  m[1] = r(imul(ca, sc));
+  m[2] = r((imul(sb, cc) + imul(r(imul(cb, sa)), sc)) | 0);
+  m[3] = r(-(imul(cb, sc) + imul(imul(sb, sa) >> 15, cc)) | 0);
+  m[4] = r(imul(ca, cc));
+  m[5] = r(-(imul(sb, sc) - imul(r(imul(cb, sa)), cc)) | 0);
+  m[6] = r(imul(-sb, ca));
+  m[7] = -sa;
+  m[8] = r(imul(cb, ca));
   return m;
 }
 
@@ -89,6 +112,8 @@ export const OFF6 = {
   list: 0x3200, scratch: 0x41a0, tex: 0x0000, env: 0x0c80, sy: 0x1900, sx: 0x1902, sz: 0x2580,
   f0: 0x5140, f1: 0x5910, f2: 0x60e0, bit0: 20,
 };
+/** block 2's: block 5's layout, a sort that starts at bit 18 (14 passes) */
+export const OFF2 = { ...OFF5, bit0: 18 };
 export const OFF7 = {
   list: 0x0000, scratch: 0x1f40, tex: 0x3e80, env: 0x55f0, sy: 0x6d60, sx: 0x6d62, sz: 0x84d0,
   f0: 0x9c40, f1: 0xabe0, f2: 0xbb80,

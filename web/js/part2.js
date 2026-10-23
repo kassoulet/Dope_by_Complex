@@ -1,7 +1,10 @@
 /*
  * dope/part2.js -- what is known exactly about part 2 (the credits): its palette.
  *
- * Part 2 is NOT ported.  Its picture is drawn by a software 3D engine (vertex
+ * (Superseded: part 2 is now ported, see ports/part2.js and docs/PORT2.md; what follows
+ * is the earlier study of its palette and compositor, kept because tests check it.)
+ *
+ * Part 2 was NOT ported when this was written.  Its picture is drawn by a software 3D engine (vertex
  * transform 0x1c60, projection 0x1d60, polygon setup 0x3420-0x3475, texture
  * mapped span fill 0x27c6 with the gradients patched into the instruction
  * stream), and that engine is still only understood well enough to describe,

@@ -10,9 +10,9 @@ made by taking `DOPE.EXE` apart:
 * **part 3** is a real JavaScript port too (`web/js/ports/part3.js` on the shared 3D engine `engine3d.js` / `raster3.js`; 1,812 frames identical in lock step, `docs/PORT3.md`);
 * **part 7** is a JavaScript port as well, on the same engine (`web/js/ports/part7.js`, `docs/PORT7.md`);
 * **parts 5 and 6** too (`web/js/ports/part5.js`, `part6.js`; `docs/PORT5.md`, `docs/PORT6.md`);
-* **part 2** is the demo's own **machine code**, run by a 16/32-bit
-  real-mode x86 interpreter written in JavaScript (`web/js/vm/`) with a model of
-  the VGA card behind it, in a Web Worker.  The effects are not reimplemented;
+* **part 2** is a port too (`web/js/ports/part2.js`, `docs/PORT2.md`): **every part now runs as JavaScript**.  The 16/32-bit real-mode x86
+  interpreter (`web/js/vm/`) and its recompiler are no longer in the page's path: they are the oracle the ports are
+  checked against, byte for byte, frame by frame (`docs/PORTING.md`);
 * the **music** is the original 28 channel module in a JS replayer.
 
 Everything runs from the demo's own files: `DOPE.EXE` (RNC packed) and
@@ -37,7 +37,7 @@ Click the canvas to start.  Space pauses, left/right seek 5 s, `j`/`l` 10 s, Hom
 | `/web/?t=200` | pin the picture at 200 s (one frame, no audio) |
 | `/web/part1test.html` | part 1 in the browser: prints the frame digest and canvas mismatches |
 
-## How parts 2..7 run
+## How parts 2..7 ran before the ports (the page now runs the ports; this machinery is the oracle)
 
 * `web/js/partvm.js` builds a part the way the loader did: the block at segment
   `0xf8b`, 23-28 relocated words (`+ segment - 0x10`), an optional far `init`
@@ -106,7 +106,7 @@ node tests/test_port4.mjs [--quick]   # part 4's port, every routine against the
 node tests/test_port4_run.mjs    # part 4's port in lock step with the original, whole part (4 min)
 node tests/test_engine3.mjs [--quick]  # the 3D engine's routines against block 3
 node tests/test_port3_run.mjs    # part 3's port in lock step, whole part
-node tests/test_port3_run.mjs --block 7   # part 7's (also 5 and 6; add --poly to check polygon by polygon)
+node tests/test_port3_run.mjs --block 7   # part 7's (also 2, 5 and 6; add --poly to check polygon by polygon)
 node tests/test_x86.mjs          # interpreter regressions found by the Unicorn replay
 node tests/test_jit.mjs [runs]   # recompiler == interpreter, lock step, all six parts
 node tests/test_vga.mjs          # the VGA model

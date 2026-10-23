@@ -73,6 +73,9 @@ export const V6 = Object.fromEntries(Object.entries({
   tpatchL: 0x23ed, tpatchR: 0x23f4, tpatchL2: 0x24c5, tpatchR2: 0x24cc, tpatchAcc: 0x24be,
 }).map(([k, v]) => [k, v + (/^(gradT|gradU|rowU|rowT|patch|tpatch|texGrad|texRow)/.test(k) ? 0x280 : 0x27c)]));
 
+/** block 2's: block 5's polygon code, 0xb30 bytes earlier (and its variables with it) */
+export const V2 = Object.fromEntries(Object.entries(V5).map(([k, v]) => [k, v + 0xb30]));
+
 export const V3 = {
   accT: 0x1fe4, accU: 0x1fe8, rows: 0x1fec, // the two accumulators, scanlines left
   gradT: 0x2078, gradU: 0x2081, // per pixel gradients: a dword each, lanes lo, hi

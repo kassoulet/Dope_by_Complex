@@ -21,7 +21,7 @@
  * addresses (the script table names them by address), so tests can compare
  * with the original byte for byte.
  */
-import { seg } from './part4.js';
+import { seg, RELOC } from './part4.js';
 import { OFF, rotationMatrix, transformObject, buildFaces, radixSort, buildSine } from './engine3d.js';
 import { Rasteriser, V3 } from './raster3.js';
 import script from './data/part3script.js';
@@ -41,6 +41,7 @@ export const A3 = {
 export class Part3 {
   constructor(image, { screen = null, pal = null } = {}) {
     const cfg = this.constructor.CFG;
+    this.opts = { screen, pal, ...arguments[1] };
     this.A = cfg.A; this.L = cfg.L; this.cfg = cfg;
     const rdW = (o) => image[CS + o] | (image[CS + o + 1] << 8);
     this.cs = image.slice(CS, CS + (cfg.csSize || 0x3000));
@@ -48,7 +49,7 @@ export class Part3 {
     this.sin = buildSine(new Int16Array(Array.from({ length: 0x200 }, (_, i) => s16(rdW(this.A.sine + 2 * i)))));
     this.total = 0;
     this.gs = image.subarray(seg(cfg.gsSeg), seg(cfg.gsSeg) + 0x10000); // the engine's arrays; in the image, because the frame buffer's tail overlaps them
-    this.fbSeg = rdW(this.A.bufSeg);
+    this.fbSeg = cfg.fbSeg !== undefined ? (cfg.fbSeg + RELOC) & 0xffff : rdW(this.A.bufSeg);
     this.fb = image.subarray(this.fbSeg << 4, (this.fbSeg << 4) + 0x10000); // the off screen frame (in the image: other things overlap its tail)
     this.background = image.subarray(seg(cfg.background), seg(cfg.background) + 0x3ed0 * 4);
     this.rows = new Uint16Array(256);
@@ -106,7 +107,7 @@ export class Part3 {
       const segW = this.w(r);
       const geo = this.image.subarray(segW << 4, (segW << 4) + 0x10000);
       const ang = [0, 1, 2].map((i) => (this.sw(r + 0x1e + 2 * i) + this.sw(this.A.camAngle + 2 * i)) >> 4);
-      const M = rotationMatrix(this.sin, ...ang);
+      const M = rotationMatrix(this.sin, ...ang, this.cfg.roundMatrix);
       const pos = [0, 1, 2].map((i) => (this.d(r + 6 + 4 * i) + this.d(this.A.camPos + 4 * i)) | 0);
       const offset = [0, 1, 2].map((i) => this.d(r + 0x2e + 4 * i));
       const sel = this.w(r + 0x2a);
