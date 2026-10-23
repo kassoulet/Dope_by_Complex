@@ -92,7 +92,11 @@ web/data/             parts.json (relocation, entries, lengths), handoff screens
 tools/                extraction, DOSBox-X capture and snapshot, differential tests, renderers
 tests/                regression tests
 docs/ANALYSIS.md      disassembly notes: EXE layout, driver, module, effects
-docs/RUNTIME.md       measured runtime: video mode, code layout, load addresses, part 2
+docs/RUNTIME.md       measured runtime: video mode, code layout, load addresses, part 2 (how the parts first ran)
+docs/PORTING.md       the porting method: oracle, lock step, polygon by polygon, lessons
+docs/ENGINE.md        the 3D engine that parts 2, 3, 5, 6, 7 share, and how its five copies differ
+docs/PORT2..7.md      what each part turned out to be
+web/js/ports/         the ports (part1 is web/js/part1.js); engine3d.js, raster3.js, part2..7.js
 ```
 
 ## Verify

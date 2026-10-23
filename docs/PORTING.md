@@ -3,7 +3,8 @@
 The parts of DOPE are 16 bit real mode x86 written by hand (block 4 is 485 KB,
 of which about 3 KB is code).  Porting one means rewriting those few
 kilobytes as JavaScript so that **the same data produce the same pictures**.
-This document is the method; `PORT4.md` and the others are what it found.
+This document is the method; `PORT2.md` ... `PORT7.md` are what it found in each
+part and `ENGINE.md` is what the five 3D parts have in common.
 
 ## The rule
 
@@ -54,6 +55,55 @@ middle of frames, so what a given frame shows depends on how fast the machine
 was.  That is why the lock step has to own the interrupt; and why the port may
 choose its own frame rate.)
 
+### 3. Polygon by polygon, inside the frame (`--poly`)
+
+When a whole-frame comparison fails, it says only that the frame differs.  The
+lock step test of the 3D parts has a second mode (`tests/test_port3_run.mjs <n>
+--block <b> --poly`): at every call of the original's polygon routine it takes
+the vertex arrays the original has just built, draws that one triangle with the
+port, lets the original run to the end of the routine, and compares the frame and
+the rasteriser's variables.  The first failing polygon is printed with its corners,
+its tables and, optionally (`DBGIP=<ip>`), the registers at a chosen instruction.
+That is how a pixel one colour off in frame 883 of 2,253 became "`shld 10`, not
+`shld 8`", and how a division that looked like `cdq` turned out to be `cwd`.
+
+## What the ports cost
+
+| part | port | lines | checked against the original |
+|------|------|------:|------------------------------|
+| 4 | `part4.js` | 490 | 160 routine checks, 3,720 frames |
+| 3 | `part3.js` + `engine3d.js`, `raster3.js` | 195 + 285 + 529 | 7 moments, 1,812 frames |
+| 7 | `part7.js` | 103 | 1,053 frames |
+| 5 | `part5.js` | 131 | 2,253 frames, polygon by polygon too |
+| 6 | `part6.js` | 143 | 2,001 frames |
+| 2 | `part2.js` | 192 | 3,657 frames |
+
+The engine took the time; once it was a function of a *layout* (where each array
+and variable lives) and a few switches, each further part was mostly reading what
+its copy changes (the `ndiff` listings) and running the lock step.
+
+## Lessons
+
+* **Compare the copies before reading them.**  Five blocks share one engine.
+  `tools/ndiff.sh` shows in seconds that two routines differ by two lines, or that a
+  part has a second filler nobody calls.  Reading 4,000 lines of listing five times is
+  the slow way.
+* **Keep the original's memory.**  The port keeps its arrays in the same 1 MB image
+  as the original's, at the same addresses, because the original *uses* the overlaps
+  (a frame buffer whose tail is an array in another part).
+* **A disassembler can lie about the instruction.**  `99` is `cwd` in 16 bit code and
+  `cdq` with a `66` prefix; capstone prints `cdq` for both in 16 bit mode.  Check the bytes
+  whenever a result depends on the high half of a register.
+* **Dead stores are not free to compare.**  A variable the original writes and never
+  reads (an attribute stored for a path never taken) shows up as a false mismatch.
+  The test keeps a list of masked ranges, each with the reason.
+* **Test the ending too.**  The last frames, a palette fade, a white flash, are the
+  parts a frame comparison never reaches.  Every part's end is compared separately.
+* **Timing is data, not code.**  Each script step ends at the first *frame* after its
+  tick count, so the part's length depends on how fast the machine drew.  The page
+  gives the port the measured length and the port spreads the difference
+  (`part2.js`); the lock step test does not, so that it stays exact.
+
 ## The tools
 
 | tool | what it is for |
@@ -61,7 +111,10 @@ choose its own frame rate.)
 | `tools/calltrace.mjs <block>` | which routines a part calls, how often, how many instructions each costs, during which ticks. The first thing to run: it turns 485 KB into a list of a dozen routines. |
 | `tools/opmix.mjs`, `tools/bench.mjs` | what instructions a part executes and how fast they run |
 | `tools/oracle.mjs` | `runPart`, `clone`, `callRoutine`: the original as a function |
-| `ndisasm -b16 -o<addr> -e<addr> build/blockNN_*.bin` | the disassembly (addresses are block offsets; subtract 0x100 for the segment offset the code uses) |
+| `tools/disblock.py <block> <from> <to>` | the disassembly (addresses are block offsets; subtract 0x100 for the segment offset the code uses) |
+| `tools/ndiff.sh`, `tools/addrmap.py` | two copies of a routine, diffed with the numbers blanked out; the address table that maps one onto the other |
+| `tools/scriptdump.mjs`, `tools/scriptdump2.py` | the straight line script (`mov [var],imm` ... `call run`) as data |
+| `tests/test_port3_run.mjs --block <2,3,5,6,7> [--poly]` | the lock step test of every 3D part |
 | `tools/diffcheck*.py` | the emulator itself against Unicorn: if the oracle is wrong everything is |
 
 ## Reading order that worked

@@ -7,10 +7,10 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<nav><a href="index.html"><b>DOPE, reversed</b></a><a href="index.html#process">the process</a><a href="writeup.html">asm write-up</a></nav>
+<nav><a href="index.html"><b>DOPE, reversed</b></a><a href="index.html#process">the process</a><a href="porting.html">porting method</a><a href="engine.html">the engine</a><a href="writeup.html">asm write-up</a></nav>
 <main>
 <h1>The best bits of DOPE's assembly</h1>
-<p class="lead">Ten snippets, disassembled with <code>ndisasm -b16</code> from the unpacked blocks. Addresses are offsets inside the unpacked block. The listings are the real bytes; the explanations are my reading of them, and I say where that is a guess.</p>
+<p class="lead">Seventeen snippets, disassembled with <code>ndisasm -b16</code> from the unpacked blocks. Addresses are offsets inside the unpacked block. The listings are the real bytes; the explanations are my reading of them, and I say where that is a guess.</p>
 <p class="note">Part 1 is block 1; the texture loop and projection are in block 2. Block 2's own banner says it all: <i>"DON'T TELL ME IT'S NOT OPTIMIZED OR 'REAL' BECAUSE I KNOW THAT ALREADY! WHY OPTIMIZE ANYTHING FOR PENTIUM 100 MHZ?"</i> It is optimised anyway.</p>
 
 <h2>1. Wait for the retrace edge, not for "a" retrace</h2>
@@ -174,7 +174,7 @@
 <li><b>The fade is a table lookup on the palette, not on the picture.</b> 768 bytes of <code>out</code> per tick is cheap on a 486; retouching the screen would not have been.</li>
 </ul>
 
-<h2>9. Sorting polygons by splitting the list at both ends of one buffer</h2>
+<h2>10. Sorting polygons by splitting the list at both ends of one buffer</h2>
 <pre><code><span class="cm">; block 2, 0x369a</span>
 369A  mov edx,0x40000         <span class="cm">; the flag bit that decides the side</span>
 36A0  mov si,0x0              <span class="cm">; read from the front of the input</span>
@@ -197,13 +197,69 @@
 36F0  mov eax,[bx]            <span class="cm">; after it, walking it backwards</span></code></pre>
 <p>One pass over a list of 32-bit records (<code>depth &lt;&lt; 16 | polygon index</code>) puts the records with a flag bit set at one end of a scratch buffer and the others at the other end, then writes both back, the second one in reverse. That is a one-bit radix partition done with two stacks that grow towards each other, no counters and no second buffer. The terminator is any record whose low word is negative, so the loop needs no count either. It has a limit nobody wrote down. In part 6's copy of the routine (block <code>0x2dea</code>) the input starts at <code>0x3200</code> and the scratch area at <code>0x41a0</code>, 1000 records further, so a longer list overwrites its own tail. I found out because a seek that fed part 6 its timer interrupts too fast made the frame in progress see a scene with 1,183 visible faces, and the sorter then walked off the end of memory for ever.</p>
 
-<h2>10. Patching the immediates of your own loop</h2>
+<h2>11. Patching the immediates of your own loop</h2>
 <pre><code>2800  add dword [cs:0x2650],0x0    <span class="cm">; imm32 filled in at run time</span>
 293F  add ebp,0x0                   <span class="cm">; "</span>
 2946  adc edx,0x0                   <span class="cm">; "</span>
 28E6  mov bl,ch                     <span class="cm">; ... the span loop at 0x27c6 / 0x28e6 has</span>
 2905  add ecx,[cs:0x26e8]           <span class="cm">; the same deltas as memory operands</span></code></pre>
 <p>The per-polygon edge and texture gradients are not kept in registers or variables: before a polygon is drawn the setup writes them straight into the <b>immediate fields</b> of the <code>add</code> instructions that will consume them (the zeros in the file are placeholders). Three or four such fields exist per part, and the polygon filler runs thousands of times per frame. It saves a register or a memory read per use on a CPU with eight registers, and costs a pipeline flush on Pentiums; the authors accept that, and wrote a second loop at <code>0x28e6</code> with the deltas as <code>[cs:...]</code> operands for the clipped case. For the recompiler on this page it is the one thing that breaks the usual assumption that code is constant: it marks every translated byte, drops a block when a store hits it, and after the first hit on an immediate reads that field from memory when the block runs. Without that, part 2 recompiled its span loop 112,000 times in 3 seconds.</p>
+
+<h2>12. Division that looks like <code>cdq</code> and is <code>cwd</code></h2>
+<pre><code><span class="cm">; block 5, 0x1fb4: bytes  A1 46 23  2B 06 3E 23  99  F7 FB</span>
+1FB4  mov ax,[0x2346]
+1FB7  sub ax,[0x233e]         <span class="cm">; difference of two 16 bit lanes</span>
+1FBB  cwd                     <span class="cm">; 99, no 66 prefix: dx = sign of AX</span>
+1FBC  idiv bx                 <span class="cm">; DX:AX / dy, the lane's slope per row</span></code></pre>
+<p>The texture-gradient setup divides four 16 bit differences by the number of rows, and the instruction in between is the single byte <code>99</code>. In 16 bit code that is <code>cwd</code>; with a <code>66</code> prefix it is <code>cdq</code>, and a few lines later the code does use <code>66 99</code> (<code>shl eax,16 / cdq / idiv ebp</code>) for the 32 bit gradient. The disassembler I used prints both as <code>cdq</code>. A port that believes it extends the sign of the whole of <code>eax</code> has a dividend whose upper half depends on whatever <code>eax</code> held from the previous division, and a negative difference gets divided as a large positive number. The first version of the part 5 port did exactly that; the polygon-by-polygon check found it, as a row slope that differed in one lane of one triangle. Check the bytes whenever the high half of a register is involved.</p>
+
+<h2>13. A shift of 10 where a shift of 8 was meant</h2>
+<pre><code><span class="cm">; block 3, 0x2158 (phong index)         ; block 5, 0x1c98</span>
+mov bl,ch                              mov bl,ch
+shld ebx,ecx,8                         shld ebx,ecx,0xa      <span class="cm">; 66 0F A4 CB 0A</span>
+and bx,0x7f7f                          and bx,0x7f7f
+mov al,[fs:bx]                         mov al,[fs:bx]</code></pre>
+<p>The phong fill packs two 16 bit coordinates in one register and looks up a 128 x 128 map with the top seven bits of each. With a shift of 8 the high byte of <code>ecx</code> lands in <code>bl</code> and the previous <code>bl</code> (the other coordinate's high byte) in <code>bh</code>: a clean <code>(y,x)</code>. Parts 5 and 6 shift by 10, part 2 by 9. Shifting by 10 pushes <code>bl</code> up by ten places, so only its low six bits survive, in bits 10 to 15, and the low byte is made of bits 22 to 31 of <code>ecx</code>: the index mixes the two coordinates. Nobody would write that on purpose, but it is what parts 5 and 6 look like, and a port that "fixes" it to 8 is wrong in one pixel out of a few thousand: it was found in frame 883 of 2,253.</p>
+
+<h2>14. The rounding the matrix routine lost</h2>
+<pre><code><span class="cm">; block 2, 0x1f05 (66 C1 F8 0F  66 83 D0 00)         ; block 3, 0x1f71</span>
+sar eax,0xf                                           sar eax,0xf
+adc eax,0x0                 <span class="cm">; + the bit shifted out</span>         <span class="cm">; (nothing)</span></code></pre>
+<p>Part 2's rotation matrix is built with fifteen bit fixed point multiplies, and after every <code>sar eax,15</code> an <code>adc eax,0</code> adds the last bit shifted out: round to nearest instead of truncate. The other four parts' copies of the same routine have lost every one of those <code>adc</code>s. In part 2's own copy the author forgot one (the inner product of the fourth entry, <code>sar ebx,0xf</code> straight into <code>imul ebx,[0x1d58]</code>), and the port has to forget it as well. I only learned that the routine was there because a variable that the picture never reads differed by one.</p>
+
+<h2>15. A lighting table that breathes: the ramp built with <code>lea</code> and <code>neg</code></h2>
+<pre><code><span class="cm">; block 5, 0x3199, called by the timer every tick with dx = brightness</span>
+3199  lea bx,[edx*8]          <span class="cm">; bx = 8 * dx</span>
+31A1  neg bx                  <span class="cm">; ... negated</span>
+31A3  mov cl,0x10
+31A8  mov [cs:si],bh          <span class="cm">; ramp[k] = high byte of ((k - 8) * dx)</span>
+31AC  add bx,dx
+...
+31BA  mov ah,[cs:di]          <span class="cm">; table[16*i + j] = ramp[i] &lt;&lt; 8 | ramp[j]</span>
+31C2  mov al,[cs:si]</code></pre>
+<p>The phong fill reads a row offset out of a 256 word table. In part 3 it is a constant. In parts 5 and 6 the timer interrupt rebuilds it every tick from a single number (<code>dx</code>, from the sine of a running angle): a 16 entry ramp centred on zero, <code>((k - 8) * dx) &gt;&gt; 8</code>, built without a multiply by negating <code>8 * dx</code> and adding <code>dx</code> sixteen times, then every pair of entries makes a word. The effect is that the lit sphere the surface is shaded from gets bigger and smaller, 70 times a second, for the price of 16 bytes and 256 stores per tick.</p>
+
+<h2>16. A recursive blur by table lookup</h2>
+<pre><code><span class="cm">; block 2, 0x3780: the whole screen, two pixels per iteration</span>
+3780  mov bh,[si]              <span class="cm">; what this pixel was last frame</span>
+3782  mov bl,[es:si]           <span class="cm">; what the polygons drew now</span>
+3785  mov dl,[fs:bx]           <span class="cm">; out = shade[old &lt;&lt; 8 | new]</span>
+...
+1AAB  imul ax,ax,0x1a0         <span class="cm">; the table: (0x1a0 * old + 0x60 * band) / 2 / 256</span>
+1AB6  or ah,0x80</code></pre>
+<p>Part 2 has no clear and no averaging loop. The polygons are drawn on a band buffer, and a 64 KB table indexed by <code>(previous output, band pixel)</code> gives the new output: <code>0x1a0/512 = 81 %</code> of the old value plus <code>0x60/512 = 19 %</code> of the new one. Writing the result back into the same buffer makes it a feedback filter: moving shapes leave a soft glow behind them. The table is built three times over (<code>[bx+0x80]</code>, <code>[bx-0x8000]</code>, <code>[bx-0x7f80]</code>) so the high bit the output always carries is ignored by the next lookup. One step of the script zeroes half of the table, which cuts the feedback and makes the next frames dark. Per pixel it costs two loads, a table lookup and a store.</p>
+
+<h2>17. A pixel loop that counts in <code>al</code></h2>
+<pre><code><span class="cm">; block 7, 0x2a51 (the clipped texture span) - the same shape in blocks 2, 5, 6</span>
+2A51  shld ebx,ecx,8
+2A56  mov bh,ch
+2A58  add ecx,ebp              <span class="cm">; both texture coordinates in one add</span>
+2A5B  mov ah,[fs:bx]
+2A5E  mov [es:si],ah
+2A61  inc si
+2A62  dec al                   <span class="cm">; only the low byte of the count</span>
+2A64  jne 0x2a51</code></pre>
+<p>Eight instructions per textured pixel, with the two 16 bit texture coordinates added by one <code>add ecx,ebp</code> and the pixel read through <code>fs:bx</code>. The pixel count is in <code>ax</code> but the loop tests <code>al</code>. A span of 256 pixels or more therefore draws its length modulo 256, and a span of exactly 256 draws 256 (because <code>dec al</code> from zero wraps). A span that long is rare on a 320 pixel screen, so the original gets away with it; the port keeps the quirk.</p>
 
 <h2>Bonus: projection with the rounding folded into the centre offset</h2>
 <pre><code>1E04  sar eax,3

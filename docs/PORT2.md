@@ -9,7 +9,8 @@ screen directly.  `web/js/ports/part2.js`, a subclass of `part3.js`.
 Found with `tools/ndiff.sh` (two listings, numbers blanked out) and
 `tools/addrmap.py` (what each address became):
 
-* the polygon code is block 5's, 0xb30 bytes earlier: both fillers, the phong one
+* the polygon code is block 5's, 0xb30 bytes earlier: both fillers (the plain texture
+  filler is used here too: 17,000 of 44,000 polygons over the part), the phong one
   with **`shld ebx, ecx, 9`** (parts 5 and 6 use 10, 3 and 7 use 8);
 * the vertex stage is block 3's with a per vertex texture coordinate from the object
   (no `add offset` after the rotation);

@@ -74,10 +74,11 @@ ships next to the executable is the exact one the demo plays.
 
 ### Blocks 1..7 — the demo parts
 
-Each block starts with 0x100..0x110 bytes of zeroes and then 32 bit protected
-mode code plus data.  All seven contain the same anti-rip banner at a slightly
+Each block starts with 0x100..0x110 bytes of zeroes and then 16 bit real mode
+code that uses 32 bit registers (operand size prefixes), plus data.  All seven contain the same anti-rip banner at a slightly
 different offset, so they are separate overlays that each link in a copy of the
-engine:
+engine (the five 3D parts really are five assemblies of one source, see
+`docs/ENGINE.md`; the banner sits in the middle of the polygon code):
 
 ```
 HELLO LAMER !!!  HAVING NICE TIME WITH MY CODE ???
@@ -186,11 +187,15 @@ constant the GUS driver feeds to the GF1 voice rate registers.
   and the fact that seeking (mix and discard) is identical to continuous
   playback.
 
-*Not reconstructed any more*: the earlier procedural scenes (`scenes.js`,
-`look.js`) are gone.  Parts 2..7 are the demo's own machine code, run by the
-interpreter and recompiler in `web/js/vm/` (see `docs/RUNTIME.md`, "Parts 2..7
-run from their own blocks"); the order and length of each part are measured
-(`web/data/parts.json`), not inferred from the module's order list.
+*Ports*: parts 2..7 are JavaScript ports (`web/js/ports/`), each checked byte for
+byte against the original's own code in a frame by frame lock step
+(`docs/PORTING.md`).  Parts 2, 3, 5, 6 and 7 share one 3D engine in five
+slightly different copies (`docs/ENGINE.md`); parts 4 and 2 have their own
+studies (`docs/PORT4.md`, `docs/PORT2.md`).  The earlier procedural scenes
+(`scenes.js`, `look.js`) are gone; before the ports the parts were run by the
+interpreter and recompiler in `web/js/vm/` (`docs/RUNTIME.md`), which is now the
+oracle.  The order and length of each part are measured (`web/data/parts.json`),
+not inferred from the module's order list.
 
 Part 1 was the part that could not be recovered by reading the code alone: its
 picture is a pre-shaded gradient strip the renderer copies with hand written

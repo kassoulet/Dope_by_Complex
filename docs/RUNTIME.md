@@ -1,3 +1,9 @@
+> **Status.** This file records how parts 2..7 were first made to run: the original code in an x86
+> interpreter and a recompiler.  The page no longer does that: every part is now a JavaScript port
+> (`web/js/ports/`, `docs/PORTING.md`).  The interpreter remains as the oracle the ports are checked
+> against, so these measurements (loader relocation, timer model, what the card has to do) are still
+> the description of the reference machine.
+
 # DOPE runtime — what the original actually does
 
 This is the reference material for the pixel-exact port.  Everything here was

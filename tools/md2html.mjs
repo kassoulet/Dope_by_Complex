@@ -70,7 +70,7 @@ if (process.argv[1] && process.argv[1].endsWith('md2html.mjs')) {
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<nav><a href="index.html"><b>DOPE, reversed</b></a><a href="index.html#process">the process</a><a href="porting.html">porting method</a><a href="writeup.html">asm write-up</a></nav>
+<nav><a href="index.html"><b>DOPE, reversed</b></a><a href="index.html#process">the process</a><a href="porting.html">porting method</a><a href="engine.html">the engine</a><a href="writeup.html">asm write-up</a></nav>
 <main>
 ${body}
 <p><a href="index.html">&larr; back to the player</a></p>
