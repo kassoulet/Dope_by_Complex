@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DOPE The effects</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav><a href="index.html"><b>DOPE, reversed</b></a><a href="index.html#process">the process</a><a href="porting.html">porting method</a><a href="engine.html">the engine</a><a href="effects.html">the effects</a><a href="writeup.html">asm write-up</a></nav>
+<main>
+<h1 id="the-effects-and-the-3d-models">The effects, and the 3D models</h1>
+<p>What each part of DOPE shows, how it is made, and the seven meshes the 3D parts draw.  Everything here was read out of the demo's own data and checked against the ports (<code>PORTING.md</code>); pictures are drawn by the ports, models by <code>tools/models.mjs</code> straight from the blocks.  Mentions of what a shape "is" (a cat, an octopus) are my reading of the render, not something the demo says.</p>
+<h2 id="the-parts">The parts</h2>
+<table><tr><th>part</th><th>length</th><th>labels on screen</th><th>the 3D object</th><th>the trick</th></tr><tr><td>1</td><td>39 s</td><td>the COMPLEX logo</td><td>none</td><td>a window onto a 1344 line picture, palette from two ramps</td></tr><tr><td>2</td><td>117 s</td><td>"phong BLUR motion", credits</td><td>a slab with a hole (250 vertices), a double ring like a letter C (432)</td><td>the screen fed back into itself, 81 % old picture</td></tr><tr><td>3</td><td>52 s</td><td>"7800 PHONG polys"</td><td>a lumpy sphere (514)</td><td>phong by two table lookups per pixel</td></tr><tr><td>4</td><td>106 s</td><td>"FIRE clouds", "FRACTAL scape"</td><td>none</td><td>fire by warping a buffer into itself, a voxel landscape, two pictures in one byte</td></tr><tr><td>5</td><td>65 s</td><td>"phong ENV mapping", "BUMP glow"</td><td>a tube folded like a worm (432)</td><td>a lighting table that breathes; the checker floor of part 4 kept underneath</td></tr><tr><td>6</td><td>58 s</td><td>"SHADOW volume", "material MORPH", "METAL shading"</td><td>a cat (352), two crossed rings (256)</td><td>lights that follow the camera; the palette cross-fades every tick</td></tr><tr><td>7</td><td>36 s</td><td>"multiple LIGHT sources", "1995 WORLD domination"</td><td>an eight armed star (1446)</td><td>five moving blobs painted into the lookup table every frame</td></tr></table>
+<p>(Lengths are the measured ones, <code>web/data/parts.json</code>.)</p>
+<h3 id="part-1-the-logo">Part 1: the logo</h3>
+<p>No polygons.  The picture is a strip of 1024 pixel wide rows, and the screen is a 320 pixel window onto it: the scroll is one number written to the card's start-address and panning registers, the fade is 64 colours recomputed from two ramps.  <code>README.md</code>, section "Part 1".</p>
+<h3 id="part-2-phong-blur-motion">Part 2: phong BLUR motion</h3>
+<p><img class="shot" src="img/parts/part2.png" alt="part 2 at ticks 700, 2600, 4400 and 7000" title="part 2 at ticks 700, 2600, 4400 and 7000"></p>
+<p>A credits sequence on top of two soft shapes.  The credit text is not a font: it is four pre-shaded pictures (32 rows of 320 bytes each) in the data, loaded one after the other into a band buffer.  The polygons are drawn on the band, and then every pixel of the screen is replaced by a table lookup of (its previous value, the band's value): the screen is 81 % what it was and 19 % what is new.  That is the blur of the title; objects leave a trail and the text melts in.  The lighting itself is a 128 x 128 ramp whose slope the script changes 118 times, so the sheen slides over the surfaces.  The second object (the C) is filled with the plain texture fill, the first only with the lookup fill; the palette fades in from black over 64 ticks and the part ends on a white screen.  <code>PORT2.md</code>.</p>
+<h3 id="part-3-7800-phong-polys">Part 3: 7800 PHONG polys</h3>
+<p><img class="shot" src="img/parts/part3.png" alt="part 3 at ticks 250, 1300, 2400 and 3500" title="part 3 at ticks 250, 1300, 2400 and 3500"></p>
+<p>One lumpy sphere, turning against a starfield.  The shading is "phong" in the cheap sense used throughout: each vertex carries its surface direction; the fill interpolates two such directions across the triangle and looks the colour up in a table, so the highlights are smooth although the object has only 1,024 triangles. Back faces are culled: between 300 and 530 triangles are drawn per frame.  The title's 7,800 is not a count I can reproduce: no frame draws more than 533, and the mesh has 1,024.  The record table holds three more copies of the sphere at other zoom factors, hidden and never shown by the script.  <code>PORT3.md</code>.</p>
+<h3 id="part-4-fire-clouds-fractal-scape">Part 4: FIRE clouds, FRACTAL scape</h3>
+<p><img class="shot" src="img/parts/part4.png" alt="part 4 at ticks 600, 2600, 4300, 5800 and 7300" title="part 4 at ticks 600, 2600, 4300, 5800 and 7300"></p>
+<p>No 3D engine.  Three layers share every byte of the screen (the high nibble is the fire's intensity, the low nibble is a landscape or picture), and the palette is the 16 x 16 table of all combinations, computed from two 16 colour palettes through two cross-fading ramps.  Changing the look of the fire, or dissolving it into the landscape, moves no pixel: it uploads 720 bytes of palette.  The fire is a buffer that is warped into itself by a rotation field each frame; the landscape is a height field drawn column by column; the last stage is a picture of a checker floor.  <code>PORT4.md</code>.</p>
+<h3 id="part-5-phong-env-mapping-bump-glow">Part 5: phong ENV mapping, BUMP glow</h3>
+<p><img class="shot" src="img/parts/part5.png" alt="part 5 at ticks 300, 1600, 2900 and 4200" title="part 5 at ticks 300, 1600, 2900 and 4200"></p>
+<p>The checker floor is part 4's last picture (its low nibbles kept as the background), and the worm moves over it. Two fills are used.  For the first 1,500 ticks or so (the "ENV mapping" frames) the worm is covered, wholly or in part, by the plain texture fill (the golden streaked skin); from about tick 1,700 on, in the red "BUMP glow" stage, it is drawn only by the lookup fill, whose row table the timer rebuilds every tick from a sine: the table is a brightness ramp used on both axes, so the highlights swell and shrink, which is the glow.  At the end the high nibbles are filled with part 6's first picture and the palette is cross-faded: the checker dissolves into the blue background of the next part without any pixel being drawn. <code>PORT5.md</code>.</p>
+<h3 id="part-6-shadow-volume-material-morph-metal-shading">Part 6: SHADOW volume, material MORPH, METAL shading</h3>
+<p><img class="shot" src="img/parts/part6.png" alt="part 6 at ticks 400, 1300, 2500 and 3700" title="part 6 at ticks 400, 1300, 2500 and 3700"></p>
+<p>A cat in front of two huge crossed rings (the blue tubes: the same engine, drawn with a focal length of 3,500 so the 256 vertex ring fills the screen) and a blue picture.  The "material morph" is a palette fade: the timer cross-fades colours 16 to 207 between two stored palettes every tick, so the cat's skin changes from brown to steel without a single polygon changing; the lookup table the fill reads is a 128 x 128 strip that is repainted each frame: the old picture fades by 16 per pixel and a 64 x 64 pattern, picked by the camera's angle, is added, so lights follow the view.  <code>PORT6.md</code>.</p>
+<h3 id="part-7-multiple-light-sources-1995-world-domination">Part 7: multiple LIGHT sources, 1995 WORLD domination</h3>
+<p><img class="shot" src="img/parts/part7.png" alt="part 7 at ticks 400, 1000, 1700 and 2300" title="part 7 at ticks 400, 1000, 1700 and 2300"></p>
+<p>The octopus (an eight armed star of 1,446 vertices, flat: its depth is only +-534 against +-8191 in the plane) in front of a desert horizon.  Its colours come from a 256 x 256 lookup picture that is rebuilt every frame: a background plus five 128 x 128 blobs added with a plain 32 bit <code>add</code>, each following its own Lissajous path (<code>sin t</code>, <code>sin 8t</code> ...), so the highlights swim over the metal by themselves: the "multiple light sources". The camera then flies into the figure until a single arm fills the screen, and the part ends on a strip of picture with the word "dope".  <code>PORT7.md</code>.</p>
+<h2 id="the-models">The models</h2>
+<p><img class="sheet" src="img/models/part3_rock.png" alt="" title=""></p>
+<p>Above: the sphere of part 3, three views, shaded and as a wireframe, drawn from the demo's data by <code>tools/models.mjs</code>.</p>
+<table><tr><th>name</th><th>part</th><th>vertices</th><th>faces</th><th>edges</th><th>Euler number</th><th>what it looks like</th></tr><tr><td><code>part2_ring</code></td><td>2</td><td>250</td><td>500</td><td>750</td><td>0</td><td>a pentagonal slab with a pentagonal hole, an oval groove on its face</td></tr><tr><td><code>part2_knot</code></td><td>2</td><td>432</td><td>864</td><td>1296</td><td>0</td><td>a tube bent into a double C, 12 sided, 36 steps</td></tr><tr><td><code>part3_rock</code></td><td>3</td><td>514</td><td>1024</td><td>1536</td><td>2</td><td>a lumpy sphere</td></tr><tr><td><code>part5_worm</code></td><td>5</td><td>432</td><td>864</td><td>1296</td><td>0</td><td>a thick tube folded over itself, 12 sided, 36 steps</td></tr><tr><td><code>part6_open</code></td><td>6</td><td>352</td><td>671</td><td>1022</td><td>1</td><td>a cat; an open surface (it has a hole underneath)</td></tr><tr><td><code>part6_cube</code></td><td>6</td><td>256</td><td>512</td><td>768</td><td>0</td><td>two crossed rings, 16 sided, 16 steps</td></tr><tr><td><code>part7_snakes</code></td><td>7</td><td>1446</td><td>2888</td><td>4332</td><td>2</td><td>an eight armed star, flat</td></tr></table>
+<p>The Euler number <code>V - E + F</code> tells what a mesh is topologically: 2 is a sphere (part 3's rock, the octopus, closed at the arms' ends), 0 a torus (the rings and tubes: sweeps of a 12 or 16 sided section along a closed path, which is why 432 = 12 x 36 and 256 = 16 x 16 and why the face index deltas in the data are the same <code>-12, -13</code> / <code>1, -12</code> pairs 19 times in a row), and 1 a surface with a boundary (the cat).  The tube meshes of parts 2 and 5 have identical topology and different shape: the author ran one generator with two paths.</p>
+<p><img class="sheet" src="img/models/part2_knot.png" alt="" title=""></p>
+<p><img class="sheet" src="img/models/part5_worm.png" alt="" title=""></p>
+<p><img class="sheet" src="img/models/part6_open.png" alt="" title=""></p>
+<p><img class="sheet" src="img/models/part6_cube.png" alt="" title=""></p>
+<p><img class="sheet" src="img/models/part7_snakes.png" alt="" title=""></p>
+<p><img class="sheet" src="img/models/part2_ring.png" alt="" title=""></p>
+<h3 id="how-a-model-is-stored">How a model is stored</h3>
+<p>One segment per mesh, a 16 byte header of word offsets and then four arrays:</p>
+<pre><code>+0   vertex count            +2   face count
++4   offset of the vertices  +6   offset of the faces
++8   offset of the normals   +10  offset of the texture coordinates
+vertices   3 x int16 each (x, y, z), within +-8191: a 14 bit signed range, centred on the origin
+faces      8 bytes: an attribute word, then three vertex numbers, each times 4
+normals    3 x int16 each, every one of the same length, 27,559 (0x6BA7): unit vectors, scaled
+texcoords  2 x int16 each (u, v), 0x4000..0x7FFF in the data (used by parts 2, 5 and 6; parts 3 and 7 compute
+           theirs from the normals)</code></pre>
+<ul><li>The faces carry no material of their own: the attribute word is 0 in all 7 meshes.  The material (which of four lookup tables or textures a triangle is filled with) comes from the object's record, from the two bytes of a selector word that are added to the low bits of the face's vertex numbers.</li><li>Faces are wound so that the sign of a 16 bit cross product of two screen edges says whether they face the viewer; a flag in the object record flips the test for objects whose faces point inwards.</li><li>A mesh is 8 to 46 KB: the octopus is <code>1446 x (6 + 6 + 4) + 2888 x 8</code> bytes.</li><li>Parts 2 and 5 each have a 432 vertex tube; they are different meshes with the same topology and the same size, 13,840 bytes.</li></ul>
+<h3 id="the-object-record">The object record</h3>
+<p>The scene is a table of 0x3A byte records, the first one the camera (segment <code>0xFFFF</code>), ended by a zero segment word:</p>
+<pre><code>+0x00 mesh segment       +0x02 hidden (non zero: skipped)    +0x04 focal length (zoom)
++0x06 position x,y,z     3 x int32 (+0x0A, +0x0E), added to the vertices after a shift left by 8
++0x12 velocity x,y,z     3 x int32, added to the position every tick
++0x1E angles a,b,c       3 x int16, 0..0xFFFF for a turn (the engine uses angle &gt;&gt; 4, 4096 steps)
++0x24 angular speeds     3 x int16, added to the angles every tick
++0x2A selector           two bytes added to the material bits
++0x2C cull flag          which side of a triangle is the front
++0x2E vertex offset      3 x int32, added to every vertex before it is rotated</code></pre>
+<p>For the camera only the position and angles count: the engine adds them to each object's.  The timer interrupt does the moving (angles += angular speeds, positions += velocities, for every record), and the script, a straight line of <code>mov [var],imm</code> and <code>call run</code> (21 to 153 steps per part), sets speeds and positions: that is the whole choreography.</p>
+<h2 id="numbers-per-part">Numbers per part</h2>
+<table><tr><th>part</th><th>visible faces per frame (max / mean)</th><th>objects shown at once</th><th>script steps</th></tr><tr><td>2</td><td>891 / 571</td><td>2</td><td>153</td></tr><tr><td>3</td><td>533 / 399</td><td>1</td><td>21</td></tr><tr><td>5</td><td>463 / 412</td><td>1</td><td>28</td></tr><tr><td>6</td><td>661 / 601</td><td>2</td><td>16</td></tr><tr><td>7</td><td>1492 / 1440</td><td>1</td><td>7</td></tr></table>
+<p>(Counted by the port, sampled every 20 ticks, after back face culling.)  The 386 or 486 that this ran on did that, at a frame rate that depended on the machine, in a few thousand lines of hand written assembly.</p>
+<p><a href="index.html">&larr; back to the player</a></p>
+</main>
+</body>
+</html>

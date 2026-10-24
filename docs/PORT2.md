@@ -24,7 +24,7 @@ Found with `tools/ndiff.sh` (two listings, numbers blanked out) and
 ## The compositor: a picture that feeds back on itself
 
 The polygons are not drawn on the screen buffer but on the *band* buffer
-(segment `0x4527`), which also holds, in a 40 row strip, a line of credits
+(segment `0x4527`), which also holds, in a 32 row strip, a line of credits
 (there are four, `[0x1904]` picks one; `-2` leaves the strip, `-1` clears it, `0`
 fills `0x80`).  Then for every pixel of the screen buffer (`0x5517`):
 

@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<nav><a href="index.html"><b>DOPE, reversed</b></a><a href="#original">the original</a><a href="#ports">ports</a><a href="#how">how it plays</a><a href="#process">the process</a><a href="#status-section">what is real</a><a href="porting.html">porting method</a><a href="engine.html">the engine</a><a href="writeup.html">asm write-up</a></nav>
+<nav><a href="index.html"><b>DOPE, reversed</b></a><a href="#original">the original</a><a href="#ports">ports</a><a href="#how">how it plays</a><a href="#process">the process</a><a href="#status-section">what is real</a><a href="porting.html">porting method</a><a href="engine.html">the engine</a><a href="effects.html">the effects</a><a href="writeup.html">asm write-up</a></nav>
 <main>
 <h1>DOPE by Complex (The Gathering 1995)</h1>
 <p class="lead">A 1995 MS-DOS demo, taken apart and put back together in JavaScript. Part 1 is read out of the original <code>DOPE.EXE</code>, parts 2 to 7 run the original machine code in a JS x86, and the music is the original 28-channel module.</p>
@@ -68,7 +68,7 @@
 <li><b>Notice the engine is one engine.</b> Parts 2, 3, 5, 6 and 7 turned out to be five assemblies of the same source. Disassembling two copies and diffing them with the addresses blanked out showed part 7's differs from part 3's in two lines; the differences between the others are the history of the author's changes (a rounded matrix, a phong index scaled by 8, 9 or 10, a lighting table that starts to move). <a href="engine.html">The engine</a>.</li>
 <li><b>The music.</b> <code>DOPE.MOD</code> is a 28-channel ProTracker module that the demo's GUS driver plays. The page plays it with <b>libopenmpt</b> compiled to WebAssembly (<code>web/vendor/</code>, <code>web/js/openmpt.js</code>): 8 tap windowed-sinc interpolation, full stereo separation, rendered at the sound card's own rate. The song clock is the number of audio frames rendered, which is what every picture follows, and a seek is libopenmpt's own (it replays the song state up to the nearest row, <code>tests/test_openmpt.mjs</code>). An earlier replayer of my own (a 28 channel mixer, loudness envelope correlation 0.88 against libopenmpt over the whole tune, a 0.3 s clock drift) was replaced by it.</li>
 </ol>
-<p>Everything is in the repository: <code>docs/ANALYSIS.md</code> and <code>docs/RUNTIME.md</code> hold the notes and measurements, <code>docs/PORTING.md</code> the method, <code>docs/ENGINE.md</code> and <code>docs/PORT*.md</code> what each part turned out to be.</p>
+<p>Everything is in the repository: <code>docs/ANALYSIS.md</code> and <code>docs/RUNTIME.md</code> hold the notes and measurements, <code>docs/PORTING.md</code> the method, <code>docs/ENGINE.md</code> and <code>docs/PORT*.md</code> what each part turned out to be, <a href="effects.html">the effects</a> what each part shows and the seven 3D models.</p>
 
 <h2 id="status-section">What is real and what is not</h2>
 <table>

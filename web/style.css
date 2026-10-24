@@ -27,3 +27,6 @@ figure { margin:1em 0; } figure img { image-rendering:pixelated; width:100%; max
 #bar button:disabled { opacity:.5; cursor:default; }
 #seek { flex:1; min-width:80px; accent-color:#9f8cff; }
 #status { color:#9c9; font:12px ui-monospace, monospace; padding-top:4px; min-height:1.5em; }
+
+img.shot { image-rendering:pixelated; width:100%; max-width:640px; height:auto; display:block; margin:1em 0; background:#000; }
+img.sheet { width:100%; max-width:960px; height:auto; display:block; margin:1em 0; background:#101010; }

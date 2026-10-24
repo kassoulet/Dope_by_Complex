@@ -93,6 +93,7 @@ tests/                regression tests (tests/data: the screens the lock step te
 docs/ANALYSIS.md      disassembly notes: EXE layout, driver, module, effects
 docs/RUNTIME.md       how the parts were first made to run: video mode, code layout, load addresses
 docs/PORTING.md       the porting method: oracle, lock step, polygon by polygon, lessons
+docs/EFFECTS.md       what each part shows, how, and the seven 3D models (tools/models.mjs, tools/shots.mjs)
 docs/ENGINE.md        the 3D engine parts 2, 3, 5, 6, 7 share, and how its five copies differ
 docs/PORT2..7.md      what each part turned out to be
 ```
