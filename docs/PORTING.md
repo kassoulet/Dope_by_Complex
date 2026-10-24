@@ -108,6 +108,14 @@ its copy changes (the `ndiff` listings) and running the lock step.
   previous part's screen.  The page used three recordings made with the emulator; now the worker
   runs the previous port to its end and starts from that (about 0.7 s the first time, done in
   the background while part 1 plays), so the cut is the one the viewer was just looking at.
+* **Measure the page, not just the port.**  The ports cost 1 to 3 ms a frame (`tools/perf.mjs`), yet
+  the first page that ran them stuttered: the worker re-armed a timer on every message from the page
+  (a million wake-ups a second), every picture was a fresh 64 KB copy (a 30 MB sawtooth of garbage
+  in the page's heap), the screens handed from part to part were computed on first use (a one second
+  freeze at the start of part 5), and the audio was rendered on the page's own thread.  Now: one
+  pending wake-up, RGBA buffers made in the worker and recycled, the chain computed while part 1
+  plays, the song in an AudioWorklet.  The page's heap stays flat at 10 MB and no frame takes more than
+  20 ms in headless Chrome.
 * **Timing is data, not code.**  Each script step ends at the first *frame* after its
   tick count, so the part's length depends on how fast the machine drew.  The page
   gives the port the measured length and the port spreads the difference over its

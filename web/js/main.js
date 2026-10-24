@@ -13,7 +13,6 @@
  */
 
 
-import { Song } from "./openmpt.js";
 import { findBlocks } from "./rnc.js";
 import { EmuParts } from "./emuparts.js";
 import { Part1, W, H, counterAt, END_COUNTER, TICKS_PER_SECOND, COUNTS_PER_TICK } from "./part1.js";
@@ -34,7 +33,9 @@ const PART1_SECONDS = END_COUNTER / COUNTS_PER_TICK / TICKS_PER_SECOND;
 const pctx = canvas.getContext("2d");
 pctx.imageSmoothingEnabled = false;
 
-let song = null; // DOPE.MOD in libopenmpt
+let songInfo = null; // what libopenmpt says about DOPE.MOD: channels, patterns, orders
+let epoch = 0; // counts seeks; positions the audio thread sent before the latest one are stale
+let posTime = 0; // the audio clock when framesDone was reported
 let bytes = null;
 let audio = null;
 let node = null;
@@ -45,12 +46,17 @@ let started = false;
 let clockOn = false; // the clock only runs once DOPE.EXE, the module and the audio are ready
 let paused = false;
 let framesDone = 0; // song clock, in output frames
-let ctxMark = 0; // audio.currentTime when framesDone was last updated
 let wallT = 0; // silent fallback clock
 let wallMark = 0;
 let part = null;
 let partImage = null;
 let playing = null;
+let lastRaf = 0;
+const perf = {}; // timings for tools/perf.mjs: name -> {n, sum, max, over}
+function perfNote(name, ms) {
+  const p = perf[name] || (perf[name] = { n: 0, sum: 0, max: 0, over: 0 });
+  p.n++; p.sum += ms; if (ms > p.max) p.max = ms; if (ms > (name === "raf" ? 25 : 20)) p.over++;
+}
 let lastLevel = 0; // peak of the last audio block, for the browser check
 
 /* ------------------------------------------------------------------ aspect */
@@ -71,19 +77,20 @@ window.addEventListener("error", (e) => { status.textContent = `JS error: ${e.me
 function now() {
   if (!clockOn) return wallT; // still loading: the song has not started
   if (!node) return wallT + (paused || !started ? 0 : performance.now() / 1000 - wallMark);
-  // audio frames are produced in 2048 frame blocks: extrapolate between them
-  const extra = paused ? 0 : Math.min(2048 / sr, Math.max(0, audio.currentTime - ctxMark));
+  // the audio thread reports every 2048 frames: extrapolate between reports
+  const extra = paused ? 0 : Math.min(4096 / sr, Math.max(0, audio.currentTime - posTime));
   return framesDone / sr + extra;
 }
 
 function seekTo(seconds) {
   seconds = Math.max(0, Math.min(duration - 0.05, seconds));
   if (emu) emu.markSeek();
-  if (song) song.seek(seconds);
+  epoch++;
+  if (node) node.port.postMessage({ cmd: "seek", seconds, epoch });
   framesDone = Math.round(seconds * sr);
   wallT = seconds;
   wallMark = performance.now() / 1000;
-  if (audio) ctxMark = audio.currentTime;
+  if (audio) posTime = audio.currentTime;
   drawAt(seconds);
   updateTransport(seconds);
 }
@@ -95,7 +102,8 @@ function setPaused(p) {
   paused = p;
   if (!node) { wallT = t; wallMark = performance.now() / 1000; }
   playBtn.textContent = paused ? "▶ play" : "❚❚ pause";
-  if (audio && !paused) { audio.resume().catch(() => {}); ctxMark = audio.currentTime; }
+  if (node) { node.port.postMessage({ cmd: "pause", on: paused }); if (paused) lastLevel = 0; }
+  if (audio && !paused) { audio.resume().catch(() => {}); posTime = audio.currentTime; }
 }
 
 function updateTransport(t) {
@@ -112,34 +120,29 @@ async function fetchBytes(url) {
   return new Uint8Array(await res.arrayBuffer());
 }
 
-function startAudio() {
+// The song is rendered by libopenmpt in an AudioWorklet (js/audioworklet.js), on the audio thread, so
+// nothing the page draws can make it stutter.  The song clock is the number of frames it reports having
+// rendered; between reports (every 2048 frames) it is extrapolated from the audio clock.
+async function startAudio() {
   audio = new AudioContext();
   audio.resume().catch(() => {});
   sr = audio.sampleRate;
-  song.seek(0);
-
-  // A ScriptProcessor on the main thread: the song clock is the number of frames it has rendered.
-  // 2048 frames is ~46 ms.
-  const blockSize = 2048;
-  const left = new Float32Array(blockSize);
-  const right = new Float32Array(blockSize);
-  node = audio.createScriptProcessor(blockSize, 0, 2);
-  node.onaudioprocess = (e) => {
-    const outL = e.outputBuffer.getChannelData(0);
-    const outR = e.outputBuffer.getChannelData(1);
-    if (paused) { outL.fill(0); outR.fill(0); lastLevel = 0; return; }
-    song.render(left, right, blockSize, sr);
-    outL.set(left);
-    outR.set(right);
-    let peak = 0;
-    for (let i = 0; i < blockSize; i++) {
-      const a = left[i] < 0 ? -left[i] : left[i];
-      if (a > peak) peak = a;
-    }
-    lastLevel = peak;
-    framesDone += blockSize;
-    ctxMark = audio.currentTime;
-  };
+  await audio.audioWorklet.addModule(new URL("./audioworklet.js", import.meta.url));
+  node = new AudioWorkletNode(audio, "dope-song", { numberOfInputs: 0, outputChannelCount: [2] });
+  const ready = new Promise((resolve) => {
+    node.port.onmessage = (e) => {
+      const d = e.data;
+      if (d.type === "ready") resolve(d);
+      else if (d.type === "pos" && d.epoch === epoch) {
+        framesDone = d.frames;
+        posTime = d.time;
+        lastLevel = paused ? 0 : d.peak;
+      }
+    };
+  });
+  const copy = bytes.slice();
+  node.port.postMessage({ cmd: "load", bytes: copy }, [copy.buffer]);
+  songInfo = await ready;
   node.connect(audio.destination);
 }
 
@@ -148,7 +151,6 @@ async function start() {
   started = true;
   status.textContent = "loading DOPE.MOD...";
   bytes = await fetchBytes("../DOPE.MOD");
-  song = await Song.load(bytes);
 
   status.textContent = "reading DOPE.EXE...";
   try {
@@ -161,14 +163,13 @@ async function start() {
   } catch (err) {
     console.warn("DOPE.EXE parts unavailable:", err);
   }
-  status.textContent = `DOPE.MOD - ${song.channels} channels, ${song.patterns} patterns, ${song.orders} orders (libopenmpt)`;
-
   try {
-    startAudio();
+    await startAudio();
+    status.textContent = `DOPE.MOD - ${songInfo.channels} channels, ${songInfo.patterns} patterns, ${songInfo.orders} orders (libopenmpt)`;
   } catch (err) {
-    node = null; // headless / blocked autoplay: visuals keep running silently
+    node = null; // blocked autoplay or no AudioWorklet: the pictures keep running silently
     console.warn("audio unavailable:", err);
-    status.textContent += " (audio unavailable)";
+    status.textContent = "DOPE.MOD (audio unavailable)";
   }
   wallMark = performance.now() / 1000;
   clockOn = true;
@@ -181,6 +182,7 @@ async function start() {
 
 function frame() {
   const t = now();
+  perfNote("raf", performance.now() - lastRaf); lastRaf = performance.now();
   if (t >= duration - 0.05) { seekTo(0); } else { drawAt(t); updateTransport(t); }
   requestAnimationFrame(frame);
 }
@@ -250,6 +252,9 @@ window.__dope = {
   get audioState() { return audio ? audio.state : null; },
   get audioLevel() { return lastLevel; },
   get frames() { return framesDone; },
+  get perf() { return perf; },
+  get workerStats() { return emu ? emu.stats : null; },
+  resetPerf() { for (const k of Object.keys(perf)) delete perf[k]; },
   get aspect() { return getComputedStyle(canvas).aspectRatio; },
   get digest() { return canvasDigest(); },
   get ink() { return canvasInk(); },

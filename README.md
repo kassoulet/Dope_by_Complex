@@ -14,8 +14,9 @@ made by taking `DOPE.EXE` apart.  Everything runs from the demo's own files:
   study, `docs/PORT2.md` ... `docs/PORT7.md`;
 * the **music** is `DOPE.MOD` (28 channels) played by **libopenmpt**
   (WebAssembly, `web/vendor/`) with its 8 tap sinc interpolation, at the sound
-  card's rate; the song clock is the number of audio frames rendered and drives
-  every picture, so pause and seek move both.
+  card's rate, rendered on the audio thread (an AudioWorklet); the song clock is
+  the number of audio frames it has rendered and drives every picture, so pause
+  and seek move both.
 
 The page has pause and seek, shows the picture at 4:3 (mode 13h pixels are 1.2x
 taller than wide), and explains the process; `web/writeup.html` is the write-up
@@ -80,11 +81,12 @@ web/index.html, writeup.html, style.css   the site: player, process, asm write-u
 web/*.html            the docs as pages (engine, porting, port2 ... port7), made by tools/md2html.mjs
 web/js/main.js        the page: audio callback, transport, part 1 / ports switch
 web/js/openmpt.js     DOPE.MOD in libopenmpt (render, seek)
+web/js/audioworklet.js  runs it on the audio thread and reports the song clock
 web/vendor/           libopenmpt compiled to WebAssembly (chiptune3's build) and its licences
 web/js/rnc.js         RNC ProPack decompressor -- reads the blocks out of DOPE.EXE
 web/js/part1.js       part 1 transcoded: picture + scroll + palette, written as pixels
 web/js/emuparts.js    the timeline of parts 2..7 and the canvas painting
-web/js/emuworker.js   the worker that runs a port at the page clock's pace
+web/js/emuworker.js   the worker that runs a port at the page clock's pace and sends 8 bit RGBA pictures (buffers recycled)
 web/js/ports/         the ports: image.js (loader), index.js, engine3d.js, raster3.js, part2..7.js
 web/data/             parts.json (relocation, lengths)
 tools/vm/             the oracle: x86 interpreter, recompiler, VGA/DAC model, machine, partvm.js
@@ -111,6 +113,7 @@ node tests/test_engine3.mjs [--quick]  # the 3D engine's routines against block 
 node tests/test_port3_run.mjs [--block 2|3|5|6|7] [--poly]   # a 3D part's port in lock step, whole part (--poly: polygon by polygon)
 node tests/test_browser.mjs      # the real page in headless Chrome: audio, pause, seek, loop
 node tests/test_page_ports.mjs   # the real page shows the ports' pictures (parts 3, 5, 7 byte for byte)
+node tools/perf.mjs [seconds]    # where the page stutters: frame intervals, worker times, heap, per part
 
 # the oracle itself
 node tests/test_partvm.mjs       # parts 2..7 from DOPE.EXE in the interpreter: ISR, picture, pinned digests

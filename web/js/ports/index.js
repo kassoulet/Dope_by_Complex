@@ -39,7 +39,13 @@ export class PortRunner {
     if (this.port.done) this.exited = true;
   }
 
-  /** The picture and palette as the card would show them. */
+  /** The picture and palette as the card would show them, without copying: valid until the next call. */
+  view() {
+    this.port.render();
+    return { pixels: this.port.vram, pal: this.port.dac };
+  }
+
+  /** The picture and palette as the card would show them (copies). */
   snapshot() {
     this.port.render();
     return { pixels: this.port.vram.slice(), pal: this.port.dac.slice() };

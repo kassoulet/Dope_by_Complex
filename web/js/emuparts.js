@@ -31,7 +31,10 @@ export class EmuParts {
     this.image = null;
     this.worker.onmessage = (e) => {
       const d = e.data;
-      if (d.type === "frame") { this.frame = d; this.stats = d.stats; this.seeking = false; }
+      if (d.type === "frame") {
+        if (this.frame && !this.frame.shown) this.recycle(this.frame); // never painted: back to the worker
+        this.frame = d; this.stats = d.stats; this.seeking = false;
+      }
       else if (d.type === "seeking") this.seeking = true;
     };
     this.worker.postMessage({
@@ -39,6 +42,15 @@ export class EmuParts {
       blocks: this.parts.map((p) => blocks[p.block].slice()),
       parts: this.parts,
     });
+  }
+
+  /** Give a frame's buffer back to the worker for the next picture. */
+  recycle(f) {
+    if (f.recycled) return;
+    f.recycled = true;
+    const buf = f.rgba.buffer;
+    f.rgba = null;
+    this.worker.postMessage({ cmd: "recycle", buf }, [buf]);
   }
 
   /** Index of the part that is on screen at `t` seconds (>= p1End). */
@@ -64,19 +76,10 @@ export class EmuParts {
     }
     this.lastT = t;
     const f = this.frame;
-    if (f && f.part === k) {
-      this.image = this.image || ctx.createImageData(320, 200);
-      const d = this.image.data;
-      const { pixels, pal } = f;
-      for (let i = 0, j = 0; i < 64000; i++, j += 4) {
-        const c = pixels[i] * 3;
-        const r = pal[c], g = pal[c + 1], b = pal[c + 2];
-        d[j] = (r << 2) | (r >> 4);
-        d[j + 1] = (g << 2) | (g >> 4);
-        d[j + 2] = (b << 2) | (b >> 4);
-        d[j + 3] = 255;
-      }
-      ctx.putImageData(this.image, 0, 0);
+    if (f && f.part === k && !f.shown) {
+      f.shown = true;
+      ctx.putImageData(new ImageData(f.rgba, 320, 200), 0, 0);
+      this.recycle(f);
     }
     return k;
   }

@@ -1,8 +1,8 @@
 /*
  * dope/openmpt.js -- DOPE.MOD played by libopenmpt (web/vendor/libopenmpt.js, WebAssembly).
  *
- * The page's clock is the number of audio frames rendered, so all this has to do is fill
- * buffers and seek.  Quality settings: the 8 tap windowed sinc interpolation filter (the best
+ * The song clock is the number of audio frames rendered, so all this has to do is fill
+ * buffers and seek (it runs in the AudioWorklet, js/audioworklet.js, and in node for the tests).  Quality settings: the 8 tap windowed sinc interpolation filter (the best
  * libopenmpt has), full stereo separation, rendered at the sound card's own rate.
  */
 import libopenmpt from "../vendor/libopenmpt.js";
