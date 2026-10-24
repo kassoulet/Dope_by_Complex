@@ -17,8 +17,8 @@
 
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { Machine } from '../web/js/vm/machine.js';
-import { SCREEN_W, SCREEN_H } from '../web/js/vm/vga.js';
+import { Machine } from './vm/machine.js';
+import { SCREEN_W, SCREEN_H } from './vm/vga.js';
 import { encodePNG, indexedToRGB } from './png.mjs';
 
 function load(base) {

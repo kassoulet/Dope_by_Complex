@@ -1,24 +1,25 @@
 # DOPE — COMPLEX (The Gathering 95) — in the browser
 
 A browser version of the 1995 DOS demo *DOPE* by Complex (jmagic, jugi, reward),
-made by taking `DOPE.EXE` apart:
+made by taking `DOPE.EXE` apart.  Everything runs from the demo's own files:
+`DOPE.EXE` (RNC packed) and `DOPE.MOD`.
 
 * **part 1** (the first ~39 s) is *transcoded*: its picture and palette tables
   are read out of the unpacked block and the frames are written directly,
-  pixel-exact against DOSBox-X;
-* **part 4** is a real **JavaScript port** (`web/js/ports/part4.js`), checked against the original routine by routine and in a frame by frame lock step (`docs/PORTING.md`, `docs/PORT4.md`);
-* **part 3** is a real JavaScript port too (`web/js/ports/part3.js` on the shared 3D engine `engine3d.js` / `raster3.js`; 1,812 frames identical in lock step, `docs/PORT3.md`);
-* **part 7** is a JavaScript port as well, on the same engine (`web/js/ports/part7.js`, `docs/PORT7.md`);
-* **parts 5 and 6** too (`web/js/ports/part5.js`, `part6.js`; `docs/PORT5.md`, `docs/PORT6.md`);
-* **part 2** is a port too (`web/js/ports/part2.js`, `docs/PORT2.md`): **every part now runs as JavaScript**.  The 16/32-bit real-mode x86
-  interpreter (`web/js/vm/`) and its recompiler are no longer in the page's path: they are the oracle the ports are
-  checked against, byte for byte, frame by frame (`docs/PORTING.md`);
-* the **music** is the original 28 channel module in a JS replayer.
+  pixel-exact against DOSBox-X on 11 of 15 captured frames;
+* **parts 2 to 7** are JavaScript **ports** (`web/js/ports/`): the effects rewritten
+  from the machine code, each checked against the original code byte for byte, frame
+  by frame, in a lock step (`docs/PORTING.md`).  Parts 2, 3, 5, 6 and 7 share one 3D
+  engine in five slightly different copies (`docs/ENGINE.md`); each part has its own
+  study, `docs/PORT2.md` ... `docs/PORT7.md`;
+* the **music** is `DOPE.MOD` (28 channels) played by **libopenmpt**
+  (WebAssembly, `web/vendor/`) with its 8 tap sinc interpolation, at the sound
+  card's rate; the song clock is the number of audio frames rendered and drives
+  every picture, so pause and seek move both.
 
-Everything runs from the demo's own files: `DOPE.EXE` (RNC packed) and
-`DOPE.MOD`.  The page has pause and seek, shows the picture at 4:3 (mode 13h
-pixels are 1.2x taller than wide), and explains the process; `web/writeup.html`
-is the write-up of the original's best assembly tricks.
+The page has pause and seek, shows the picture at 4:3 (mode 13h pixels are 1.2x
+taller than wide), and explains the process; `web/writeup.html` is the write-up
+of the original's best assembly tricks.
 
 ## Run
 
@@ -37,66 +38,63 @@ Click the canvas to start.  Space pauses, left/right seek 5 s, `j`/`l` 10 s, Hom
 | `/web/?t=200` | pin the picture at 200 s (one frame, no audio) |
 | `/web/part1test.html` | part 1 in the browser: prints the frame digest and canvas mismatches |
 
-## How parts 2..7 ran before the ports (the page now runs the ports; this machinery is the oracle)
+`.github/workflows/pages.yml` publishes the site (`web/`, `DOPE.EXE`, `DOPE.MOD`) to GitHub Pages.
 
-* `web/js/partvm.js` builds a part the way the loader did: the block at segment
-  `0xf8b`, 23-28 relocated words (`+ segment - 0x10`), an optional far `init`
-  call, then `main`.  The relocation lists and entry points are data in
-  `web/data/parts.json`, **measured** by diffing a DOSBox-X snapshot of each
-  part at its start against its block (`tools/blocksnap.py`,
-  `tools/relocdiff.py`); `tools/partrun.mjs` runs any part from the command line.
-* The part's clock is its own INT 8 at 70 Hz.  `emuworker.js` raises it from
-  the page's audio clock (`TICK_HZ = 70.086`), so the animation keeps its speed;
-  each part lasts a fixed number of ticks (`parts.json`: 8200, 3665, 7443, 4557,
-  4063, 2494; measured by running to the part's `int 21h/4Ch`).
-* Pause stops the interrupts and the interpreter.  Seek restarts the part on the
-  screen the previous part left (`web/data/handoff{3,4,5}.z`, made by
-  `tools/mkhandoff.sh`) and calls the interrupt every 50,000 instructions until the counters catch up
-  (faster and part 6's polygon sorter loses its list: the hook moves the objects
-  under the frame being drawn).
-* A dynamic recompiler (`web/js/vm/jit.js`) turns each x86 basic block into a
-  JavaScript function the first time it runs: registers are locals, ModRM is
-  decoded once, flags are computed only if something can read them, a block that
-  loops to its own start loops inside the function, and the immediates the
-  parts patch in their own code are read from memory (`tests/test_jit.mjs`
-  runs every part both ways in lock step and compares registers, flags, memory
-  and the card).  It runs 45-230 M instructions/s (the interpreter 16-20): in node
-  the parts draw 40-65 distinct pictures per second against the clock
-  (`tools/realtime.mjs`), in headless Chrome 30-40 (the worker posts at most one
-  picture every 15 ms).
-* The interpreter was checked against Unicorn (QEMU's CPU) instruction by
-  instruction: `tools/diffcheck.py` (one dumped state) and `tools/diffcheck2.py`
-  (a whole run from boot with port reads and interrupts replayed).  It found
-  `shld`/`shrd imm8` run as byte ops, rotate flags, `imul` overflow flags and
-  string-instruction pointers stepping as 32 bit registers.
-* It is **not** pixel-compared against DOSBox: the original is not
-  deterministic in the counter (the credit band up at counter 127 differed
-  between two DOSBox runs).  `tests/test_partvm.mjs` pins what the interpreter
-  produces, and the pictures were compared by eye with `build/ref_full`.
+## How the page runs a part
+
+* The loader's work is reproduced by `web/js/ports/image.js`: the block is placed at segment
+  `0xf8b` in a 1 MB memory image and its 23-28 relocated words get `+ segment - 0x10`.  The
+  relocation lists and the length of each part are data in `web/data/parts.json`, **measured**
+  by diffing a DOSBox-X snapshot of each part at its start against its block
+  (`tools/blocksnap.py`, `tools/relocdiff.py`).  A port reads the demo's own tables, pictures
+  and scripts out of that image.
+* A part's clock is its own INT 8 at 70 Hz; the page drives each port from the audio clock
+  (`TICK_HZ = 70.086`).  Playing and seeking are the same thing: `advanceTo(tick)` moves the port's
+  clock, `render()` draws.  The ports run in a Web Worker (`web/js/emuworker.js`).
+* A part that continues on the previous screen (4, 5, 6) starts from the previous port's end state,
+  which the worker computes by running that port to its end (`endScreen`).
+* The parts' measured lengths include a frame's time per script step; each port is given the
+  length and spreads the difference over its steps (`slackFor`), so every part ends on its tick.
+
+## The oracle
+
+The ports are checked against the original's own code, run in an x86 interpreter with a model of
+the VGA card (`tools/vm/`: `x86.js`, `vga.js`, `machine.js`, a dynamic recompiler `jit.js`, and
+`partvm.js`, which builds a part the way the loader did).  It is not part of the page.
+
+* The interpreter was checked against Unicorn (QEMU's CPU) instruction by instruction:
+  `tools/difftrace2.mjs` dumps a run, `tools/diffcheck2.py` replays it.  It found `shld`/`shrd imm8`
+  run as byte ops, rotate flags, `imul` overflow flags and string-instruction pointers stepping as
+  32 bit registers.
+* The recompiler (31 to 230 M instructions/s) is checked against the interpreter in lock step
+  (`tests/test_jit.mjs`).
+* `tools/oracle.mjs` runs one routine of the original on a copy of the machine (`callRoutine`);
+  the lock step tests run a whole part beside its port.
+* It is **not** pixel-compared against DOSBox: the original is not deterministic in the counter
+  (the credit band up at counter 127 differed between two DOSBox runs).
 
 ## Layout
 
 ```
 web/index.html, writeup.html, style.css   the site: player, process, asm write-up
-web/js/main.js        audio callback, transport, part 1 / emulated parts switch
-web/js/transport.js   song clock: tick scheduling, seek (no mixing), duration
-web/js/mod.js         28 channel ProTracker/GUS replayer
+web/*.html            the docs as pages (engine, porting, port2 ... port7), made by tools/md2html.mjs
+web/js/main.js        the page: audio callback, transport, part 1 / ports switch
+web/js/openmpt.js     DOPE.MOD in libopenmpt (render, seek)
+web/vendor/           libopenmpt compiled to WebAssembly (chiptune3's build) and its licences
 web/js/rnc.js         RNC ProPack decompressor -- reads the blocks out of DOPE.EXE
 web/js/part1.js       part 1 transcoded: picture + scroll + palette, written as pixels
-web/js/part2.js       what is exact about part 2's screen machinery (palette, bands, compositor)
-web/js/partvm.js      a part as the loader leaves it, driven by ticks
-web/js/emuworker.js   the worker that runs a part at the page clock's pace
 web/js/emuparts.js    the timeline of parts 2..7 and the canvas painting
-web/js/vm/            x86 interpreter (x86.js), its recompiler (jit.js), VGA/DAC model, machine (INT 10h/21h, timer)
-web/data/             parts.json (relocation, entries, lengths), handoff screens
+web/js/emuworker.js   the worker that runs a port at the page clock's pace
+web/js/ports/         the ports: image.js (loader), index.js, engine3d.js, raster3.js, part2..7.js
+web/data/             parts.json (relocation, lengths)
+tools/vm/             the oracle: x86 interpreter, recompiler, VGA/DAC model, machine, partvm.js
 tools/                extraction, DOSBox-X capture and snapshot, differential tests, renderers
-tests/                regression tests
+tests/                regression tests (tests/data: the screens the lock step tests start parts 4..6 from)
 docs/ANALYSIS.md      disassembly notes: EXE layout, driver, module, effects
-docs/RUNTIME.md       measured runtime: video mode, code layout, load addresses, part 2 (how the parts first ran)
+docs/RUNTIME.md       how the parts were first made to run: video mode, code layout, load addresses
 docs/PORTING.md       the porting method: oracle, lock step, polygon by polygon, lessons
-docs/ENGINE.md        the 3D engine that parts 2, 3, 5, 6, 7 share, and how its five copies differ
+docs/ENGINE.md        the 3D engine parts 2, 3, 5, 6, 7 share, and how its five copies differ
 docs/PORT2..7.md      what each part turned out to be
-web/js/ports/         the ports (part1 is web/js/part1.js); engine3d.js, raster3.js, part2..7.js
 ```
 
 ## Verify
@@ -105,41 +103,25 @@ web/js/ports/         the ports (part1 is web/js/part1.js); engine3d.js, raster3
 python3 tests/test_tools.py      # EXE header, 8 RNC blocks + CRCs, MOD layout
 node tests/test_rnc.mjs          # the JS decompressor against the same CRCs
 node tests/test_part1.mjs        # part 1: picture, scroll units, palette, frames
-node tests/test_partvm.mjs       # parts 2..7 from DOPE.EXE: ISR, picture, pinned digests
+node tests/test_openmpt.mjs      # DOPE.MOD in libopenmpt: channels, seek, rates
 node tests/test_port4.mjs [--quick]   # part 4's port, every routine against the original (8 moments)
 node tests/test_port4_run.mjs    # part 4's port in lock step with the original, whole part (4 min)
 node tests/test_engine3.mjs [--quick]  # the 3D engine's routines against block 3
-node tests/test_port3_run.mjs    # part 3's port in lock step, whole part
-node tests/test_port3_run.mjs --block 7   # part 7's (also 2, 5 and 6; add --poly to check polygon by polygon)
-node tests/test_x86.mjs          # interpreter regressions found by the Unicorn replay
-node tests/test_jit.mjs [runs]   # recompiler == interpreter, lock step, all six parts
-node tests/test_vga.mjs          # the VGA model
-node tests/test_part2.mjs        # part 2's palette, shade table and bands against the frozen part
-node tests/test_part2_frames.mjs # part 2 one frame per tick in the rig
-node tests/test_transport.mjs    # seek == continuous playback, song duration
-node tests/test_mod.mjs          # player: header, sample tables, seek == playback
+node tests/test_port3_run.mjs [--block 2|3|5|6|7] [--poly]   # a 3D part's port in lock step, whole part (--poly: polygon by polygon)
 node tests/test_browser.mjs      # the real page in headless Chrome: audio, pause, seek, loop
 node tests/test_page_ports.mjs   # the real page shows the ports' pictures (parts 3, 5, 7 byte for byte)
 
-# differential test of the interpreter against Unicorn (.venv has unicorn + capstone)
+# the oracle itself
+node tests/test_partvm.mjs       # parts 2..7 from DOPE.EXE in the interpreter: ISR, picture, pinned digests
+node tests/test_x86.mjs          # interpreter regressions found by the Unicorn replay
+node tests/test_jit.mjs [runs]   # recompiler == interpreter, lock step, all six parts
+node tests/test_vga.mjs          # the VGA model
 node tools/difftrace2.mjs 6 --n 600000 --out build/diff6
-.venv/bin/python tools/diffcheck2.py build/diff6
-
-python3 tools/parity.py 20       # 20 s of music against libopenmpt, needs openmpt123
-python3 tools/parity.py full     # whole 8:34, reports the clock drift
+.venv/bin/python tools/diffcheck2.py build/diff6   # .venv has unicorn + capstone
 
 # ground truth from the original (needs DOSBox-X and Xvfb)
 python3 tools/refcapture.py --start 18 --seconds 8 --interval 2 --out build/ref
 python3 tools/blocksnap.py --seconds 470 --out build/snap      # every part at its start
-```
-
-`tools/parity.py` renders the module through the JS replayer and through
-libopenmpt and compares the loudness envelopes.  Last run:
-
-```
-window (20 s)   rms ref 0.1059  js 0.1058   envelope corr 0.994
-full  (515 s)   rms ref 0.1181  js 0.1198   envelope corr 0.879
-                clock drift -0.30 s at 440 s (-0.043 s per minute)
 ```
 
 ## Part 1: transcoded
@@ -166,7 +148,7 @@ eight blocks verify against the CRCs stored in the file), and `web/js/part1.js`
   registers count plane bytes.  With those units right the reference frames are
   an exact window into the unpacked picture,
   `screen(x,y) = picture[1024*y + x + 4*start + pan - 321]`;
-* the interpreter that was used to *find* all of this (`web/js/vm/`, driven by
+* the interpreter that was used to *find* all of this (`tools/vm/`, driven by
   `tools/vmrun.mjs`) runs the frozen snapshot and agrees with the transcode
   frame for frame, which is how the transcode was checked.
 

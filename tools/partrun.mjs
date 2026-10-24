@@ -14,7 +14,7 @@
  */
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { Machine } from '../web/js/vm/machine.js';
+import { Machine } from './vm/machine.js';
 import { encodePNG, indexedToRGB } from './png.mjs';
 
 export const SEGMENT = 0xf8b;

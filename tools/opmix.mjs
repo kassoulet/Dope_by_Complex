@@ -7,7 +7,7 @@
 import { readFileSync } from 'node:fs';
 import { inflateRawSync } from 'node:zlib';
 import { findBlocks } from '../web/js/rnc.js';
-import { PartRunner } from '../web/js/partvm.js';
+import { PartRunner } from './vm/partvm.js';
 
 const N = Number(process.argv[2] || 5e6);
 const blocks = findBlocks(new Uint8Array(readFileSync('DOPE.EXE'))).map((b) => b.data);

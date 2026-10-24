@@ -6,30 +6,16 @@
  * interrupts it lasts when the machine is fast enough (`ticks`).  The part
  * start times are those lengths laid end to end after part 1.
  */
-import { TICK_HZ } from "./partvm.js";
-
-const inflate = async (url) => {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`cannot load ${url} (${res.status})`);
-  const stream = res.body.pipeThrough(new DecompressionStream("deflate-raw"));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
-};
+import { TICK_HZ } from "./ports/image.js";
 
 export class EmuParts {
   /** @param blocks the unpacked RNC blocks of DOPE.EXE (0..7); @param p1End seconds part 1 lasts */
   static async load(blocks, p1End, base = "data/") {
     const table = await (await fetch(base + "parts.json")).json();
-    const screens = {};
-    for (const p of table.parts) {
-      if (p.screen && !screens[p.screen]) {
-        const b = await inflate(base + p.screen);
-        screens[p.screen] = { pixels: b.slice(0, 64000), pal: b.slice(64000, 64768) };
-      }
-    }
-    return new EmuParts(blocks, table, screens, p1End);
+    return new EmuParts(blocks, table, p1End);
   }
 
-  constructor(blocks, table, screens, p1End) {
+  constructor(blocks, table, p1End) {
     this.parts = table.parts;
     this.starts = [];
     let t = p1End;
@@ -37,7 +23,7 @@ export class EmuParts {
     this.end = t;
     this.worker = new Worker(new URL("./emuworker.js", import.meta.url), { type: "module" });
     this.frame = null;
-    this.stats = { mips: 0, fps: 0 };
+    this.stats = { fps: 0 };
     this.seeking = false;
     this.cur = -1;
     this.lastT = -1;
@@ -52,7 +38,6 @@ export class EmuParts {
       cmd: "init",
       blocks: this.parts.map((p) => blocks[p.block].slice()),
       parts: this.parts,
-      screens,
     });
   }
 

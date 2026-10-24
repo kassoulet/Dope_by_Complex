@@ -17,7 +17,7 @@
 import { readFileSync } from 'node:fs';
 import { inflateRawSync } from 'node:zlib';
 import { findBlocks } from '../web/js/rnc.js';
-import { PartRunner, SEGMENT } from '../web/js/partvm.js';
+import { PartRunner, SEGMENT } from './vm/partvm.js';
 
 let blocksCache = null;
 export const blocks = () => (blocksCache ||= findBlocks(new Uint8Array(readFileSync('DOPE.EXE'))).map((b) => b.data));
@@ -26,7 +26,7 @@ export const table = () => JSON.parse(readFileSync('web/data/parts.json', 'utf8'
 export const specOf = (n) => table().parts.find((q) => q.block === n);
 export function screenOf(spec) {
   if (!spec.screen) return null;
-  const d = inflateRawSync(readFileSync('web/data/' + spec.screen));
+  const d = inflateRawSync(readFileSync('tests/data/' + spec.screen));
   return { pixels: d.subarray(0, 64000), pal: d.subarray(64000, 64768) };
 }
 

@@ -4,7 +4,7 @@
  * PartRunner for the page's worker -- be at tick N, have a picture -- but is
  * driven differently: it has no instructions to run, only ticks to advance.
  */
-import { loadImage } from '../partvm.js';
+import { loadImage } from './image.js';
 import { Part2 } from './part2.js';
 import { Part3 } from './part3.js';
 import { Part4 } from './part4.js';

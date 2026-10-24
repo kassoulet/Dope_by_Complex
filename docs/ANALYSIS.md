@@ -173,19 +173,12 @@ constant the GUS driver feeds to the GF1 voice rate registers.
   index image.  `tools/part1check.mjs` renders it from `DOPE.EXE` alone: 11 of
   the 15 reference frames are byte identical, the other four by 8 pixels
   (`tests/test_part1.mjs`, `docs/RUNTIME.md`).
-* `web/js/mod.js` — the 28 channel replayer.  Rendered offline it matches a
-  libopenmpt render of the same module: RMS **0.1059 vs 0.1058** and a 0.5 s
-  loudness envelope correlation of **0.994** over the first 20 seconds
-  (`tools/parity.py 20`).  Over the whole 8:34 tune the correlation is
-  **0.879** and the two clocks drift apart by **-0.30 s at 440 s**
-  (-0.043 s/min, i.e. 0.07 %).  The sign and size point at the reference
-  rounding its tick length to whole samples (903.69 samples at tempo 122), but
-  that is an explanation, not something measured inside libopenmpt.
-* Player semantics: effects run on ticks 1..speed-1 only, so a speed 3 pattern
-  is not slid 33 % too fast — this alone moved the full song correlation from
-  0.848 to 0.879.  `tests/test_mod.mjs` pins the header, sample loop windows
-  and the fact that seeking (mix and discard) is identical to continuous
-  playback.
+* `web/js/openmpt.js` — `DOPE.MOD` played by libopenmpt (WebAssembly, `web/vendor/`): 28
+  channels, 8 tap sinc interpolation, the sound card's rate.  `tests/test_openmpt.mjs` checks the
+  channel count, the song length, that a seek lands within a row of where it is told and is
+  repeatable, and the sound at 44.1 and 48 kHz.  (An earlier replayer of my own, `mod.js`, was
+  compared with libopenmpt: envelope correlation 0.994 over 20 s, 0.879 over the whole tune,
+  a clock drift of 0.3 s.  libopenmpt replaced it.)
 
 *Ports*: parts 2..7 are JavaScript ports (`web/js/ports/`), each checked byte for
 byte against the original's own code in a frame by frame lock step
@@ -193,23 +186,21 @@ byte against the original's own code in a frame by frame lock step
 slightly different copies (`docs/ENGINE.md`); parts 4 and 2 have their own
 studies (`docs/PORT4.md`, `docs/PORT2.md`).  The earlier procedural scenes
 (`scenes.js`, `look.js`) are gone; before the ports the parts were run by the
-interpreter and recompiler in `web/js/vm/` (`docs/RUNTIME.md`), which is now the
-oracle.  The order and length of each part are measured (`web/data/parts.json`),
+interpreter and recompiler (`docs/RUNTIME.md`), which are now the oracle in `tools/vm/`.  The order and length of each part are measured (`web/data/parts.json`),
 not inferred from the module's order list.
 
 Part 1 was the part that could not be recovered by reading the code alone: its
 picture is a pre-shaded gradient strip the renderer copies with hand written
 inner loops, and the four map-mask passes, the 336 plane byte picture strip and
 the panning register only became clear from the frames.  `tools/vmsnap.py` +
-`web/js/vm/` (the x86 and VGA classes) were built to run the original code
+`tools/vm/` (the x86 and VGA classes) were built to run the original code
 against a snapshot and measure it; once the measurements were complete the part
 was **transcoded** into `web/js/part1.js`, which reproduces those frames from
 the demo's own data with no emulator (see `docs/RUNTIME.md`).  The emulator
-remains as verification rigging under `web/js/vm/`.
+remains as the oracle under `tools/vm/`.
 
-Parts 2..7 are run, not ported: the page unpacks their blocks out of `DOPE.EXE`,
-applies the loader's relocation (measured, see `docs/RUNTIME.md`) and executes
-them.  Blocks 2..7 each link in their own copy of the same 3D engine at a
-different offset -- block 2's starts around `0x1c60` (vertex transform),
-`0x1d60` (projection), `0x2981`/`0x3420` (polygon fill) and `0x27c6` (texture
-span loop).
+Parts 2..7 are ported (`docs/PORTING.md`): the page unpacks their blocks out of `DOPE.EXE`,
+applies the loader's relocation (measured, see `docs/RUNTIME.md`) and the ports read the demo's own
+data out of that image.  Blocks 2, 3, 5, 6 and 7 each link in their own copy of the same 3D
+engine at a different offset (`docs/ENGINE.md`); block 2's starts around `0x1c60` (vertex
+transform), `0x1d60` (projection), `0x2981`/`0x3410` (polygon fill) and `0x2760` (the scanline loops).

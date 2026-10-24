@@ -50,7 +50,7 @@ own centre and is also translated by it).
 
 ## The screen is not cleared
 
-The part begins on the picture part 4 left (`web/data/handoff4.z`).  Its low
+The part begins on the picture part 4 left (`tests/data/handoff4.z` for the lock step test; the page uses the end of the port of part 4).  Its low
 nibbles become the background layer and the frame's first content (the
 objects use colours 16..255); the 16 first DAC colours are saved.  At the end
 the high nibbles are filled with the next part's picture and the 16 x 16

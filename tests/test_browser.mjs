@@ -23,7 +23,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { Part1, W, H, counterAt, END_COUNTER } from '../web/js/part1.js';
-import { TICK_HZ } from '../web/js/partvm.js';
+import { TICK_HZ } from '../web/js/ports/image.js';
 import { launch, sleep, ROOT } from './browser_lib.mjs';
 
 const PART1_SECONDS = END_COUNTER / 138; // 69 interrupts/s, counter += 2

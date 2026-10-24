@@ -8,7 +8,7 @@
 import { readFileSync } from 'node:fs';
 import { inflateRawSync } from 'node:zlib';
 import { findBlocks } from '../web/js/rnc.js';
-import { PartRunner } from '../web/js/partvm.js';
+import { PartRunner } from './vm/partvm.js';
 
 const n = Number(process.argv[2]);
 const ticks = Number(process.argv[3] || 600);

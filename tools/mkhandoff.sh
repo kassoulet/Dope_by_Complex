@@ -1,5 +1,5 @@
 #!/bin/bash
-# Regenerate web/data/handoff{3,4,5}.z: the screen each part leaves for the next.
+# Regenerate tests/data/handoff{3,4,5}.z: the screen each part leaves for the next.
 # Runs parts 2..5 to their exit in the rig, chaining the screen (about 6 minutes).
 set -e
 cd "$(dirname "$0")/.."
@@ -15,5 +15,5 @@ import zlib
 for n in (3, 4, 5):
     d = open('build/chain/screen%d.bin' % n, 'rb').read()
     c = zlib.compressobj(9, zlib.DEFLATED, -15)
-    open('web/data/handoff%d.z' % n, 'wb').write(c.compress(d) + c.flush())
+    open('tests/data/handoff%d.z' % n, 'wb').write(c.compress(d) + c.flush())
 PY

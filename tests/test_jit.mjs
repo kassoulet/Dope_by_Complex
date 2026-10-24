@@ -14,7 +14,7 @@ import { inflateRawSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { findBlocks } from '../web/js/rnc.js';
-import { PartRunner } from '../web/js/partvm.js';
+import { PartRunner } from '../tools/vm/partvm.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const blocks = findBlocks(new Uint8Array(readFileSync(join(root, 'DOPE.EXE')))).map((b) => b.data);

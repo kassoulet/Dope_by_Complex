@@ -125,7 +125,8 @@ its copy changes (the `ndiff` listings) and running the lock step.
 | `tools/ndiff.sh`, `tools/addrmap.py` | two copies of a routine, diffed with the numbers blanked out; the address table that maps one onto the other |
 | `tools/scriptdump.mjs`, `tools/scriptdump2.py` | the straight line script (`mov [var],imm` ... `call run`) as data |
 | `tests/test_port3_run.mjs --block <2,3,5,6,7> [--poly]` | the lock step test of every 3D part |
-| `tools/diffcheck*.py` | the emulator itself against Unicorn: if the oracle is wrong everything is |
+| `tools/difftrace2.mjs`, `tools/diffcheck2.py` | the emulator itself against Unicorn: if the oracle is wrong everything is |
+| `tools/vm/` | the oracle: interpreter, recompiler, VGA model (not shipped with the page) |
 
 ## Reading order that worked
 
@@ -144,7 +145,7 @@ its copy changes (the `ndiff` listings) and running the lock step.
 ## Memory, relocation and what a port may read
 
 The port reads from the same image the emulator runs: block 4 at segment
-`0xf8b` with the loader's 22 relocated words applied (`web/js/partvm.js`
+`0xf8b` with the loader's 22 relocated words applied (`web/js/ports/image.js`
 `loadImage`).  Segment constants in the code (`push 0x66cd`) are *block*
 values; the loader adds `0xf7b`, which the port does with `seg()`.  Everything
 that is data in the original (tables, the warp field, the pictures) is read from

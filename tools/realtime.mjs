@@ -6,7 +6,7 @@
 import { readFileSync } from 'node:fs';
 import { inflateRawSync } from 'node:zlib';
 import { findBlocks } from '../web/js/rnc.js';
-import { PartRunner, TICK_HZ } from '../web/js/partvm.js';
+import { PartRunner, TICK_HZ } from './vm/partvm.js';
 
 const secs = Number(process.argv[2] || 6);
 const only = process.argv.slice(3).map(Number);

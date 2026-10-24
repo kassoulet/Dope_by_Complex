@@ -1,21 +1,19 @@
 /*
- * dope/main.js -- glue: load the module, run the replayer through Web Audio,
- * and draw at 320x200 into the canvas.
+ * dope/main.js -- glue: DOPE.MOD through libopenmpt and Web Audio, and the pictures at 320x200
+ * on the canvas.
  *
- * The page plays the demo in order.  Part 1 is the original's own picture and
- * palette, transcoded from DOPE.EXE (web/js/part1.js) and driven by the
- * module clock, so the first ~39 s are the 1995 thing; when the part's counter
- * runs out the page hands over to the scene reconstruction of parts 2..7.
- * `?vm=1` plays part 1 on its own, and `?scene=N` pins one reconstructed scene.
+ * The page plays the demo in order.  Part 1 is the original's own picture and palette, transcoded
+ * from DOPE.EXE (web/js/part1.js) and driven by the song clock, so the first ~39 s are the 1995
+ * thing; when the part's counter runs out the page hands over to the ports of parts 2..7
+ * (web/js/ports/, run in a worker by emuworker.js).  `?vm=1` plays part 1 on its own.
  *
- * Transport: one song clock (audio frames rendered) drives every picture, so
- * pause freezes both and seek moves both (transport.js).  The canvas is
- * 320x200 but shown 4:3, the shape a VGA monitor gave mode 13h.
+ * Transport: one song clock (the number of audio frames rendered) drives every picture, so pause
+ * freezes both and seek moves both.  The canvas is 320x200 but shown 4:3, the shape a VGA monitor
+ * gave mode 13h.
  */
 
 
-import { Mod } from "./mod.js";
-import { seekMod, renderBlock } from "./transport.js";
+import { Song } from "./openmpt.js";
 import { findBlocks } from "./rnc.js";
 import { EmuParts } from "./emuparts.js";
 import { Part1, W, H, counterAt, END_COUNTER, TICKS_PER_SECOND, COUNTS_PER_TICK } from "./part1.js";
@@ -29,7 +27,6 @@ const timeLabel = $("time");
 const aspectBtn = $("aspect");
 
 const params = new URLSearchParams(location.search);
-const forcedScene = null; // (the old ?scene=N pin went with the placeholder scenes)
 const originalMode = params.has("vm") || params.get("part") === "1"; // part 1 only
 const stillSeconds = params.has("t") ? Math.max(0, Number(params.get("t")) || 0) : null;
 const PART1_SECONDS = END_COUNTER / COUNTS_PER_TICK / TICKS_PER_SECOND;
@@ -37,12 +34,11 @@ const PART1_SECONDS = END_COUNTER / COUNTS_PER_TICK / TICKS_PER_SECOND;
 const pctx = canvas.getContext("2d");
 pctx.imageSmoothingEnabled = false;
 
-let mod = null;
+let song = null; // DOPE.MOD in libopenmpt
 let bytes = null;
 let audio = null;
 let node = null;
 let sr = 44100;
-let tickLeft = 0;
 let duration = originalMode ? PART1_SECONDS : 473; // replaced by the part lengths once DOPE.EXE is read
 let emu = null; // parts 2..7, run from the original code
 let started = false;
@@ -83,7 +79,7 @@ function now() {
 function seekTo(seconds) {
   seconds = Math.max(0, Math.min(duration - 0.05, seconds));
   if (emu) emu.markSeek();
-  if (mod) tickLeft = seekMod(mod, seconds, sr);
+  if (song) song.seek(seconds);
   framesDone = Math.round(seconds * sr);
   wallT = seconds;
   wallMark = performance.now() / 1000;
@@ -120,11 +116,10 @@ function startAudio() {
   audio = new AudioContext();
   audio.resume().catch(() => {});
   sr = audio.sampleRate;
-  mod = new Mod(bytes, sr);
-  tickLeft = seekMod(mod, 0, sr);
+  song.seek(0);
 
-  // A ScriptProcessor keeps the replayer tick-accurate without an
-  // AudioWorklet; 2048 frames is ~46 ms and 28 voices cost well under 1 ms.
+  // A ScriptProcessor on the main thread: the song clock is the number of frames it has rendered.
+  // 2048 frames is ~46 ms.
   const blockSize = 2048;
   const left = new Float32Array(blockSize);
   const right = new Float32Array(blockSize);
@@ -133,7 +128,7 @@ function startAudio() {
     const outL = e.outputBuffer.getChannelData(0);
     const outR = e.outputBuffer.getChannelData(1);
     if (paused) { outL.fill(0); outR.fill(0); lastLevel = 0; return; }
-    tickLeft = renderBlock(mod, left, right, blockSize, tickLeft, sr);
+    song.render(left, right, blockSize, sr);
     outL.set(left);
     outR.set(right);
     let peak = 0;
@@ -153,29 +148,25 @@ async function start() {
   started = true;
   status.textContent = "loading DOPE.MOD...";
   bytes = await fetchBytes("../DOPE.MOD");
-  mod = new Mod(bytes, 44100);
+  song = await Song.load(bytes);
 
-  if (forcedScene === null) {
-    status.textContent = "reading DOPE.EXE...";
-    try {
-      const blocks = findBlocks(await fetchBytes("../DOPE.EXE")).map((b) => b.data);
-      part = new Part1(blocks[1]);
-      if (!originalMode) {
-        emu = await EmuParts.load(blocks, PART1_SECONDS);
-        duration = emu.end;
-      }
-    } catch (err) {
-      console.warn("DOPE.EXE parts unavailable:", err);
+  status.textContent = "reading DOPE.EXE...";
+  try {
+    const blocks = findBlocks(await fetchBytes("../DOPE.EXE")).map((b) => b.data);
+    part = new Part1(blocks[1]);
+    if (!originalMode) {
+      emu = await EmuParts.load(blocks, PART1_SECONDS);
+      duration = emu.end;
     }
+  } catch (err) {
+    console.warn("DOPE.EXE parts unavailable:", err);
   }
-  status.textContent = `DOPE.MOD - ${mod.channels} channels, ${mod.patternCount} patterns, ${mod.songLength} orders`;
+  status.textContent = `DOPE.MOD - ${song.channels} channels, ${song.patterns} patterns, ${song.orders} orders (libopenmpt)`;
 
   try {
     startAudio();
   } catch (err) {
     node = null; // headless / blocked autoplay: visuals keep running silently
-    mod = new Mod(bytes, 44100);
-    mod.reset(0);
     console.warn("audio unavailable:", err);
     status.textContent += " (audio unavailable)";
   }
@@ -194,11 +185,10 @@ function frame() {
   requestAnimationFrame(frame);
 }
 
-// The demo in order: part 1's own frames until its counter runs out, then the
-// reconstruction.  `?scene=N` pins a reconstructed scene and skips part 1.
+// The demo in order: part 1's own frames until its counter runs out, then the ports.
 function drawAt(t) {
   const counter = counterAt(t);
-  if (part && forcedScene === null && counter < END_COUNTER) {
+  if (part && counter < END_COUNTER) {
     playing = "part1";
     partImage = partImage || pctx.createImageData(W, H);
     part.rgba(counter, partImage.data);
@@ -211,7 +201,7 @@ function drawAt(t) {
   if (!emu) return;
   const k = emu.draw(t, pctx, !paused);
   const s = emu.stats;
-  status.textContent = `part ${k + 2} (block ${emu.parts[k].block}) ` + (emu.parts[k].port ? `ported to JavaScript (${emu.parts[k].port}.js) -- ` : 'original code run in a JS x86 -- ') +
+  status.textContent = `part ${k + 2} (block ${emu.parts[k].block}) ` + `ported to JavaScript (${emu.parts[k].port}.js) -- ` +
     (emu.seeking ? "seeking..." : `${s.fps.toFixed(0)} pictures/s, tick ${emu.frame ? emu.frame.tick : 0} of ${emu.parts[k].ticks}`);
 }
 
@@ -274,16 +264,11 @@ updateTransport(0);
 if (stillSeconds !== null) {
   // ?t=N pins the picture at N seconds: one frame, no audio (headless checks)
   run(async () => {
-    bytes = await fetchBytes("../DOPE.MOD");
-    mod = new Mod(bytes, 44100);
-    mod.reset(0);
-    if (forcedScene === null) {
-      const blocks = findBlocks(await fetchBytes("../DOPE.EXE")).map((b) => b.data);
-      part = new Part1(blocks[1]);
-      if (stillSeconds >= PART1_SECONDS) emu = await EmuParts.load(blocks, PART1_SECONDS);
-    }
+    const blocks = findBlocks(await fetchBytes("../DOPE.EXE")).map((b) => b.data);
+    part = new Part1(blocks[1]);
+    if (stillSeconds >= PART1_SECONDS) emu = await EmuParts.load(blocks, PART1_SECONDS);
     drawAt(stillSeconds);
-    // an emulated part answers a few seconds later (it has to fast forward): keep asking
+    // a part answers a moment later (the worker has to move its clock): keep asking
     if (emu) setInterval(() => drawAt(stillSeconds), 250);
   });
 } else if (params.has("autostart")) {

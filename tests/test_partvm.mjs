@@ -14,7 +14,7 @@ import { inflateRawSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { findBlocks } from '../web/js/rnc.js';
-import { PartRunner } from '../web/js/partvm.js';
+import { PartRunner } from '../tools/vm/partvm.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const blocks = findBlocks(new Uint8Array(readFileSync(join(root, 'DOPE.EXE')))).map((b) => b.data);
@@ -26,7 +26,7 @@ const ok = (name, cond, detail) => {
 };
 const fnv = (a) => { let h = 0x811c9dc5; for (const b of a) { h ^= b; h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(16).padStart(8, '0'); };
 const screen = (name) => {
-  const d = inflateRawSync(readFileSync(join(root, 'web/data', name)));
+  const d = inflateRawSync(readFileSync(join(root, 'tests/data', name)));
   return { pixels: d.subarray(0, 64000), pal: d.subarray(64000, 64768) };
 };
 

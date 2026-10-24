@@ -1,6 +1,6 @@
 /*
- * dope/partvm.js -- run one of the demo's parts, as the loader would, in the
- * x86 interpreter (web/js/vm/).
+ * dope/tools/vm/partvm.js -- run one of the demo's parts, as the loader would, in the
+ * x86 interpreter (tools/vm/): the ORACLE the ports are checked against, not part of the page.
  *
  * A part is one of DOPE.EXE's RNC blocks.  The loader maps it at segment
  * 0xf8b (file offset 0x100 at the segment's first byte), adds `segment - 0x10`
@@ -13,11 +13,10 @@
  * not run a PIT: `deliverTick()` raises that interrupt when the player's clock
  * says a tick is due, so pause is "stop calling it" and seek is "call it fast".
  */
-import { Machine } from './vm/machine.js';
-import { JIT } from './vm/jit.js';
-
-export const SEGMENT = 0xf8b;
-export const TICK_HZ = 70.086; // one timer interrupt per mode 13h frame
+import { Machine } from './machine.js';
+import { JIT } from './jit.js';
+import { SEGMENT, TICK_HZ, loadImage } from '../../web/js/ports/image.js';
+export { SEGMENT, TICK_HZ, loadImage };
 
 /** Start of the part's main: walk back from its `int 21h/4Ch` over `push cs / call` pairs. */
 export function findEntry(block) {
@@ -42,22 +41,6 @@ export function findGs(block) {
     if (block[i] === 0x68 && block[i + 3] === 0x0f && block[i + 4] === 0xa9) return block[i + 1] | (block[i + 2] << 8);
   }
   return null;
-}
-
-/** The 1 MB memory image as the loader leaves it. */
-export function loadImage(block, reloc, segment = SEGMENT, left = null) {
-  const mem = new Uint8Array(1 << 20);
-  // the loader does not clear memory: what the part before left above its own image stays
-  if (left) mem.set(left.subarray(segment * 16, 0xa0000), segment * 16);
-  mem.set(block.subarray(0x100), segment * 16);
-  const add = segment - 0x10;
-  for (const j of reloc) {
-    const a = segment * 16 + j;
-    const v = (mem[a] | (mem[a + 1] << 8)) + add;
-    mem[a] = v & 0xff;
-    mem[a + 1] = (v >> 8) & 0xff;
-  }
-  return mem;
 }
 
 /**

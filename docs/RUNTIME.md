@@ -129,11 +129,11 @@ the tool cannot find the part's counter and writes no sidecars: `--tag-counters`
 keys on the part installing its `int 8` handler at `<segment>:0x20`, which is
 where part 1's ISR lives.
 
-## The verification rig: `tools/vmsnap.py` + `web/js/vm/`
+## The verification rig: `tools/vmsnap.py` + `tools/vm/`
 
 The parts are executed here, not reimplemented: `tools/vmsnap.py` freezes
 DOSBox-X while part 1 runs and writes the low 1 MB of guest RAM plus the part
-segment, and `web/js/vm/x86.js` / `vga.js` / `machine.js` run that image from
+segment, and `tools/vm/x86.js` / `vga.js` / `machine.js` run that image from
 the part entry (`0xbd5`) with a mode 13h VGA, the 8253 timer and the `int 8`
 vector the part installs.  `node tools/vmrun.mjs build/snap/part1 --frame N
 --png out.png` renders "the picture for counter N", the same key as the
@@ -438,7 +438,7 @@ that fills the span buffer.  `web/js/part2.js` therefore has `shadeTable()`,
 **What a run of part 2 actually does now (and the bug that hid it).**  The
 earlier note here said the part "never writes video memory at all -- the draw
 loop walks an empty polygon list".  That was a **rig bug, not a part-2 fact**:
-`web/js/vm/machine.js` took the snapshot's counter offset but still started the
+`tools/vm/machine.js` took the snapshot's counter offset but still started the
 CPU at part 1's fixed entry `0xbd5`.  Booting part 2 at `f8b:bd5` runs part 1's
 code inside part 2's memory, which of course leaves the polygon list empty; the
 two "impossible" phase segments (`0x1e71`, `0`) were that garbage.  With the
@@ -541,7 +541,7 @@ not the spans.
 With both in place the part runs from its own block.  The run was slow at
 first because of a **rig bug in the 32 bit signed divide**, not a part 2 one.
 The projection does `imul eax,[cs:0x191c] / idiv ebp`, and for a vertex in front
-of the camera the 64 bit dividend in `EDX:EAX` is negative.  `web/js/vm/x86.js`
+of the camera the 64 bit dividend in `EDX:EAX` is negative.  `tools/vm/x86.js`
 combined `EDX:EAX` as an *unsigned* 64 bit number, so a projected x became
 millions of pixels wide and the span fill looped 64 K times.  `tests/test_x86.mjs`
 now pins the signed pair.  With that fixed (`node tools/part2run.mjs`):
@@ -606,7 +606,7 @@ drift.  `tests/test_part2_frames.mjs` pins the one-tick frames.
 ## Parts 2..7 run from their own blocks
 
 Everything the part-2 sections above found about the loader generalises, and
-that is what the page uses (`web/js/partvm.js`, data in `web/data/parts.json`):
+that is what the page uses (`tools/vm/partvm.js`, data in `web/data/parts.json`):
 
 * **Relocation.** Each block is mapped at `0xf8b` (file offset `0x100` at the
   first byte), and 22-28 words are patched by `+ (segment - 0x10)`.  The lists
@@ -645,11 +645,9 @@ that is what the page uses (`web/js/partvm.js`, data in `web/data/parts.json`):
 
 ### The interpreter, checked against Unicorn
 
-`tools/difftrace.mjs` (from a point in part 2) and `tools/difftrace2.mjs` (a
-whole run from boot) dump the memory and the interpreter's state after every
+`tools/difftrace2.mjs` (a whole run from boot) dump the memory and the interpreter's state after every
 instruction, its stores, and the events a replay needs (port reads, interrupts,
-INT services the machine handled itself).  `tools/diffcheck.py` and
-`tools/diffcheck2.py` replay them in Unicorn (real mode, `.venv`) and stop at
+INT services the machine handled itself).  `tools/diffcheck2.py` replays them in Unicorn (real mode, `.venv`) and stop at
 the first difference in registers, flags (AF/OF undefined after some ops are
 not compared) or stores.  Bugs it found, all fixed and pinned in
 `tests/test_x86.mjs`:
@@ -665,7 +663,7 @@ not compared) or stores.  Bugs it found, all fixed and pinned in
 
 ### The recompiler
 
-`web/js/vm/jit.js` translates a basic block (up to 48 instructions, following
+`tools/vm/jit.js` translates a basic block (up to 48 instructions, following
 unconditional `jmp`s) into a JavaScript function on first use.  The interpreter
 is the specification: anything the translator does not handle (`int`, `iret`,
 `pushf/popf`, the byte `mul/div`, `cmps/scas`, `rcl/rcr`, bit tests, ...) ends
