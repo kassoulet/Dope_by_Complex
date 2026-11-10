@@ -13,16 +13,17 @@
 <p class="lead">A 1995 MS-DOS demo, taken apart and put back together in JavaScript. Part 1 is read out of the original <code>DOPE.EXE</code>, parts 2 to 7 run the original machine code in a JS x86, and the music is the original 28-channel module.</p>
 
 <div id="player">
-  <canvas id="screen" width="320" height="200"></canvas>
+  <div id="stage"><canvas id="screen" width="320" height="200"></canvas><div id="crt"></div></div>
   <div id="bar">
     <button id="play">▶ play</button>
     <input id="seek" type="range" min="0" max="1000" value="0" aria-label="seek">
     <span id="time">0:00 / 0:00</span>
     <button id="aspect">aspect: 4:3 (CRT)</button>
+    <label id="crtl"><input type="checkbox" id="crtbox"> CRT</label>
   </div>
   <div id="status">click to start</div>
 </div>
-<p class="note">Keys: <b>space</b> pause · <b>←/→</b> seek 5 s · <b>j/l</b> 10 s · <b>Home</b> restart. Pause and seek move the picture and the music together. Part 1 only: <a href="?vm=1">?vm=1</a>. Pin a frame: <code>?t=200</code>. Serve the repository root over http (<code>python3 -m http.server</code>) and open <code>/web/</code>.</p>
+<p class="note">Keys: <b>space</b> pause · <b>←/→</b> seek 5 s · <b>j/l</b> 10 s · <b>Home</b> restart · <b>C</b> CRT scanlines. Pause and seek move the picture and the music together. Part 1 only: <a href="?vm=1">?vm=1</a>. Pin a frame: <code>?t=200</code>. Serve the repository root over http (<code>python3 -m http.server</code>) and open <code>/web/</code>.</p>
 
 <h2 id="original">The original</h2>
 <p><code>DOPE.EXE</code> (584,133 bytes) by <b>Complex</b>: code <i>jmagic</i>, graphics and music <i>jugi</i>, boxes pixelled by <i>reward</i>. It wants 550k of base memory, 600k of extended memory and <b>a Gravis UltraSound with 512k</b>: the music is a 28-channel ProTracker module mixed by the GUS hardware, not by the CPU. The readme admits the end scroll was never made.</p>

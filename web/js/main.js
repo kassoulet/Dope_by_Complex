@@ -70,6 +70,43 @@ function applyAspect() {
 aspectBtn.addEventListener("click", () => { squarePixels = !squarePixels; applyAspect(); });
 applyAspect();
 
+/* ------------------------------------------------------------------ CRT scanlines */
+
+// CSS overlay, one dark band per source row.  The band period must be a whole number k of device
+// pixels (no moire), so with CRT on the stage height is snapped to k*H device pixels.  Display only.
+const stage = $("stage"), crtBox = $("crtbox"), crtLabel = $("crtl"), crtEl = $("crt");
+let crtWanted = false;
+try { crtWanted = localStorage.getItem("crt") === "1"; } catch (e) {}
+crtBox.checked = crtWanted;
+function layoutCrt() {
+  const dpr = window.devicePixelRatio || 1;
+  const ratio = squarePixels ? 1.6 : 4 / 3;
+  const availCss = Math.min(window.innerHeight - 170, stage.parentElement.clientWidth / ratio);
+  const k = Math.floor(availCss * dpr / H);
+  const ok = k >= 2;
+  crtBox.disabled = !ok;
+  crtLabel.classList.toggle("off", !ok);
+  crtLabel.title = ok ? "CRT scanlines (C)" : "window too small for CRT scanlines";
+  const on = crtWanted && ok;
+  stage.classList.toggle("crt", on);
+  stage.style.width = on ? `${k * H * ratio / dpr}px` : "";
+  stage.style.height = on ? `${k * H / dpr}px` : "";
+  crtEl.style.setProperty("--p", `${k / dpr}px`);
+}
+function setCrt(v) {
+  crtWanted = v; crtBox.checked = v;
+  try { localStorage.setItem("crt", v ? "1" : "0"); } catch (e) {}
+  layoutCrt();
+}
+crtBox.addEventListener("change", () => setCrt(crtBox.checked));
+document.addEventListener("keydown", (e) => { if ((e.key === "c" || e.key === "C") && !e.ctrlKey && !e.metaKey && !e.altKey && !crtBox.disabled) setCrt(!crtWanted); });
+window.addEventListener("resize", layoutCrt); // also fires on fullscreen and dpr changes
+document.addEventListener("fullscreenchange", layoutCrt);
+const dprWatch = () => matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`).addEventListener("change", () => { layoutCrt(); dprWatch(); }, { once: true });
+dprWatch();
+aspectBtn.addEventListener("click", layoutCrt);
+layoutCrt();
+
 window.addEventListener("error", (e) => { status.textContent = `JS error: ${e.message}`; });
 
 /* ------------------------------------------------------------------ clock */

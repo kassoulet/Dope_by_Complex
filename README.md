@@ -22,6 +22,11 @@ The page has pause and seek, shows the picture at 4:3 (mode 13h pixels are 1.2x
 taller than wide), and explains the process; `web/writeup.html` is the write-up
 of the original's best assembly tricks.
 
+The player has an optional **CRT** checkbox (key `C`, remembered in localStorage, default off): a CSS
+overlay with one dark scanline per source row (200) and a faint vignette. To avoid moire the display
+is snapped to k*200 device pixels high (k = whole device pixels per source row, width follows the
+4:3 / 16:10 aspect button); if k < 2 the box is greyed out. Display only, pixel data untouched.
+
 ## Run
 
 ```
