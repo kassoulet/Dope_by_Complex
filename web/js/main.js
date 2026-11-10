@@ -72,7 +72,8 @@ applyAspect();
 
 /* ------------------------------------------------------------------ CRT scanlines */
 
-// CSS overlay, one dark band per source row, as a 1xHdev device-pixel image (rows rounded to device px: no moire, and the viewport keeps its size).  Display only.
+// CSS overlay, one dark band per source row.  The band period must be a whole number k of device
+// pixels (no moire), so with CRT on the stage height is snapped to k*H device pixels.  Display only.
 const stage = $("stage"), crtBox = $("crtbox"), crtLabel = $("crtl"), crtEl = $("crt");
 let crtWanted = false;
 try { crtWanted = localStorage.getItem("crt") === "1"; } catch (e) {}
@@ -88,18 +89,9 @@ function layoutCrt() {
   crtLabel.title = ok ? "CRT scanlines (C)" : "window too small for CRT scanlines";
   const on = crtWanted && ok;
   stage.classList.toggle("crt", on);
-  stage.style.width = stage.style.height = ""; // the viewport keeps its size; the bands follow the source rows (boundaries rounded to device px)
-  if (on) {
-    const Hd = Math.max(1, Math.round(stage.clientHeight * dpr));
-    if (crtEl._h !== Hd) {
-      crtEl._h = Hd;
-      const c = document.createElement("canvas"); c.width = 1; c.height = Hd;
-      const g = c.getContext("2d"), d = g.createImageData(1, Hd);
-      for (let r = 0; r < Hd; r++) { const v = (r * H / Hd) % 1; d.data[4 * r + 3] = v < .4 ? 0 : Math.round(255 * .35 * (v - .4) / .6); }
-      g.putImageData(d, 0, 0);
-      crtEl.style.setProperty("--bands", `url(${c.toDataURL()})`);
-    }
-  }
+  stage.style.width = on ? `${k * H * ratio / dpr}px` : "";
+  stage.style.height = on ? `${k * H / dpr}px` : "";
+  crtEl.style.setProperty("--p", `${k / dpr}px`);
 }
 function setCrt(v) {
   crtWanted = v; crtBox.checked = v;
