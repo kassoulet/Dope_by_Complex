@@ -24,7 +24,7 @@ figure { margin:1em 0; } figure img { image-rendering:pixelated; width:100%; max
 #stage { position:relative; width:min(100%, calc((100vh - 170px) * 4 / 3)); margin:0 auto; }
 #stage.crt #screen { height:100%; }
 #crt { display:none; position:absolute; inset:0; pointer-events:none; }
-#stage.crt #crt { display:block; background:radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.15)) 0 0/100% 100% no-repeat, linear-gradient(to bottom, transparent 40%, rgba(0,0,0,.35)) 0 0/100% var(--p) repeat-y; }
+#stage.crt #crt { display:block; background:radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.15)) 0 0/100% 100% no-repeat, var(--bands) 0 0/100% 100% no-repeat; image-rendering:pixelated; }
 #crtl { cursor:pointer; } #crtl.off { opacity:.5; cursor:default; }
 #screen { display:block; width:100%; aspect-ratio:4/3; image-rendering:pixelated; cursor:pointer; background:#000; }
 #bar { display:flex; gap:10px; align-items:center; padding-top:8px; color:#cfc; font:13px ui-monospace, monospace; }
